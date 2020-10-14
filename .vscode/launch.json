@@ -8,9 +8,9 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
-            "program": "${workspaceFolder}/<your program>",
+            "program": "${workspaceFolder}/target/debug/youdao-dict-export",
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
+        },
     ]
 }
