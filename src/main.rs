@@ -1,33 +1,23 @@
-use reqwest::{self, Client};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+mod youdao_client;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct ResponseResult<T> {
-    code: i32,
-    msg: String,
-    data: T,
-}
+use structopt::StructOpt;
+use youdao_client::WordItem;
+use youdao_client::YoudaoClient;
+use chrono::{TimeZone, Utc};
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Page<T> {
-    total: usize,
-    #[serde(rename = "itemList")]
-    item_list: Vec<T>,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WordItem {
-    #[serde(rename = "itemId")]
-    item_id: String,
-    #[serde(rename = "bookId")]
-    book_id: String,
-    #[serde(rename = "bookName")]
-    book_name: String,
-    word: String,
-    trans: String,
-    phonetic: String,
-    #[serde(rename = "modifiedTime")]
-    modified_time: usize,
+#[derive(StructOpt, Debug)]
+#[structopt(name = "basic")]
+struct Opt {
+    #[structopt(default_value = "min", long)]
+    print_mode: String,
+    #[structopt(long)]
+    start_date: Option<String>,
+    #[structopt(long)]
+    end_date: Option<String>,
+    #[structopt(long, default_value = "0")]
+    offset: isize,
+    username: String,
+    password: String,
 }
 
 #[tokio::main]
@@ -38,210 +28,198 @@ async fn main() -> Result<(), reqwest::Error> {
     youdao.login(username, password).await?;
     println!("login successful");
     youdao.refetch_words().await?;
-    let words = youdao.get_words_mut();
-    words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
-    (0..10).for_each(|i| {
-        println!("{}={}", words[i].word, words[i].trans);
-    });
+    let words = youdao.get_mut_words();
+    // args
+    let opt: Opt = Opt::from_args();
+    filter_date(words, opt.start_date.as_deref(), opt.end_date.as_deref());
+    filter_offset(words, opt.offset);
+    print_with_mode(words, &opt.print_mode);
     Ok(())
 }
 
-/// 通过`: `分离多行的k-v返回一个map。map只会返回成功分离的k-v。
-///
-/// # panic
-///
-/// 如果存在一行不能通过`: `分离为k-v形式，则panic
-fn parse_headers(params: &str) -> HashMap<String, String> {
-    let mut headers = HashMap::new();
-    params
-        .split('\n')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        // lines
-        .collect::<Vec<&str>>()
-        .iter()
-        // line
-        .map(|s| {
-            let line = s.split(": ").collect::<Vec<&str>>();
-            if line.len() != 2 {
-                panic!("invalid header: {}", s);
-            }
-            // k, v
-            (line[0], line[1])
-        })
-        .for_each(|(k, v)| {
-            headers.insert(k.to_string(), v.to_string());
-        });
-    headers
+fn print_with_mode(words: &Vec<WordItem>, mode: &str) {
+    println!("printing with mode: {}", mode);
+    if mode == "min" {
+        words.iter().for_each(|w| println!("{}", w.word));
+    } else {
+        panic!("unsupported mode: {}", mode);
+    }
 }
 
-// fn set_builder_headers(
-//     headers: &HashMap<String, String>,
-//     mut req_builder: RequestBuilder,
-// ) -> RequestBuilder {
-//     for (key, value) in headers {
-//         req_builder = req_builder.header(key, value);
-//     }
-//     req_builder
-// }
-
-pub struct YoudaoClient {
-    client: Client,
-    is_loggedin: bool,
-    words: Vec<WordItem>,
+/// 取出offset个元素。如果offset<0，则从后取出offset个。如果offset==0则不会过滤任何元素
+///
+/// # Examples
+///
+/// ```rust, ignore
+/// let mut words = vec![1,2,3];
+/// let offset = -2;
+/// filter_offset(&mut words, offset); // words: [2,3]
+/// ```
+fn filter_offset(words: &mut Vec<WordItem>, offset: isize) {
+    println!("filter offset: {}", offset);
+    if offset > 0 {
+        let mut count = words.len() - offset as usize;
+        while count > 0 {
+            count -= 1;
+            words.pop();
+        }
+    } else if offset < 0 {
+        let start = (words.len() as isize + offset) as usize;
+        words.drain(0..start);
+        // replace
+    }
 }
 
-impl YoudaoClient {
-    /// 创建一个client
-    /// 
-    /// # panic
-    /// 
-    /// 如果Client无法创建
-    pub fn new() -> Self {
-        let client = Client::builder()
-            .cookie_store(true)
-            .redirect( reqwest::redirect::Policy::none())
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36")
-            .build()
-            .expect("build client error");
-        Self {
-            client,
-            words: vec![],
-            is_loggedin: false,
+/// 通过时间区间`[start_date, end_date]`过虑单词并以升序排列。如果end_date is None则以当前时间为准，包含end_date,
+/// 如果start_date is None，则以1970-01-01开始。
+///
+/// - [Remove an element from a vector](https://stackoverflow.com/a/40310140)
+fn filter_date(words: &mut Vec<WordItem>, start_date: Option<&str>, end_date: Option<&str>) {
+    if start_date.is_none() && end_date.is_none() {
+        return;
+    }
+    let (suffix, format) = (" 00:00:00", "%Y-%m-%d %H:%M:%S");
+    let end_date = end_date.map_or_else(
+        || Utc::now(),
+        |date| {
+            Utc.datetime_from_str(&(date.to_string() + suffix), format)
+                .expect("parse end_date error")
+        },
+    );
+    let start_date = start_date.map_or_else(
+        || {
+            Utc.datetime_from_str("1970-01-01 00:00:00", format)
+                .unwrap()
+        },
+        |date| {
+            Utc.datetime_from_str(&(date.to_string() + suffix), format)
+                .expect("parse end_date error")
+        },
+    );
+    if start_date > end_date {
+        panic!("from date: {} > end date: {}", start_date, end_date);
+    }
+    println!("filter start_date: {}, end_date: {}", start_date, end_date);
+    // remove方式：
+    // 不能在foreach中删除remove 导致out of bound
+    words.retain(|w| {
+        let date = Utc.timestamp_millis(w.modified_time as i64);
+        date >= start_date && date <= end_date
+    });
+    words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_date_test() {
+        let words = get_words();
+        let mut res = words.to_vec();
+        filter_date(&mut res, None, None);
+        assert_eq!(words, res);
+
+        let mut res = words.to_vec();
+        filter_date(&mut res, Some("2019-8-01"), None);
+        assert_eq!(res.len(), 2);
+        // 过虑了最小时间
+        assert!(res
+            .iter()
+            .find(|w| w.modified_time == 1564152487000)
+            .is_none());
+
+        let mut res = words.to_vec();
+        filter_date(&mut res, None, Some("2019-8-01"));
+        assert_eq!(res.len(), 1);
+        // 还剩下最小时间
+        assert!(res
+            .iter()
+            .find(|w| w.modified_time == 1564152487000)
+            .is_some());
+
+        let mut res = words.to_vec();
+        // 刚好还剩下最小时间
+        filter_date(&mut res, Some("2019-7-26"), Some("2019-8-01"));
+        assert_eq!(res.len(), 1);
+        assert!(res
+            .iter()
+            .find(|w| w.modified_time == 1564152487000)
+            .is_some());
+
+        let mut res = words.to_vec();
+        // 全过滤
+        filter_date(&mut res, Some("2019-3-11"), Some("2019-4-01"));
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn filter_date_order() {
+        let mut words = get_words();
+        let mut res = words.to_vec();
+        // 过虑最小时间
+        filter_date(&mut res, Some("2019-8-26"), Some("2019-10-01"));
+        assert_eq!(res.len(), 2);
+        // 升序
+        words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
+        assert_eq!(words[0..2], res[..]);
+    }
+
+    #[test]
+    fn filter_offset_test() {
+        let mut words = get_words();
+        let len = words.len();
+        let offset = 2;
+        filter_offset(&mut words, offset);
+        assert_eq!(words.len(), offset as usize);
+        for i in 0..offset as usize {
+            assert_eq!(get_words()[i], words[i]);
         }
-    }
-    /// 使用username, password登录youdao. password必须是通过youdao网页端加密过的(hex_md5)，不能是明文密码
-    pub async fn login(&mut self, username: &str, password: &str) -> Result<(), reqwest::Error> {
-        let outfox_search_user_id = self.get_cookie_outfox_search_user_id().await?;
-        println!(
-            "Have obtained cookie: outfox_search_user_id={}",
-            outfox_search_user_id
-        );
-        let url = "https://logindict.youdao.com/login/acc/login";
-        // Content-Length: 237
-        let savelogin = true;
-        let resp = self.client.post(url)
-            .header("Host", "logindict.youdao.com")
-            .header("Connection", "keep-alive")
-            .header("Cache-Control", "max-age=0")
-            .header("Upgrade-Insecure-Requests", "1")
-            .header("Origin", "http://account.youdao.com")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36")
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
-            .header("Sec-Fetch-Site", "cross-site")
-            .header("Sec-Fetch-Mode", "navigate")
-            .header("Sec-Fetch-User", "?1")
-            .header("Sec-Fetch-Dest", "document")
-            .header("Referer", "http://account.youdao.com/")
-            .header("Accept-Encoding", "gzip, deflate, br")
-            .header("Accept-Language", "zh-CN,zh;q=0.9")
-            .form(&[
-                ("username", username),
-                ("password", password),
-                // 保存cookie
-                ("savelogin", &(savelogin as i8).to_string()),
-                // 由savelogin决定
-                ("cf", &if savelogin {7} else {3}.to_string()),
-                ("app", "web"),
-                ("tp", "urstoken"),
-                ("fr", "1"),
-                ("ru", "http://dict.youdao.com/wordbook/wordlist?keyfrom=dict2.index#/"),
-                ("product", "DICT"),
-                ("type", "1"),
-                ("um", "true"),
-                // 同意登录
-                ("agreePrRule", "1"),
-            ]).send()
-            .await?;
-        if resp.status().as_u16() != 302 {
-            panic!("Login response code is not 302 error: {:?}", resp);
+
+        let mut words = get_words();
+        let offset = -2;
+        filter_offset(&mut words, offset);
+        assert_eq!(words.len(), -offset as usize);
+        for i in 0..-offset as usize {
+            // 偏移后的下标(len as isize + offset) as usize + i
+            assert_eq!(get_words()[(len as isize + offset) as usize + i], words[i]);
         }
-        self.is_loggedin = true;
-        Ok(())
+        // assert_eq!(get_words()[(len - offset) as usize], words[len - offset]);
     }
 
-    /// 缓存从youdao获取完整的单词本并清空之前存在的单词
-    /// 
-    /// # panic
-    /// 
-    /// 如果用户未登录
-    pub async fn refetch_words(&mut self) -> Result<&Vec<WordItem>, reqwest::Error> {
-        if !self.is_loggedin {
-            panic!("Operation not allowed without login");
-        }
-        self.words.clear();
-        let total = self.get_page_words(0, 0).await?.data.total;
-        let page_size = 1000;
-        let page_numbers = (total as f64 / page_size as f64).ceil() as usize;
-        println!(
-            "Found available page_numbers: {}, page_size={}, total={}",
-            page_numbers, page_size, total
-        );
-        for num in 0..page_numbers {
-            println!("fetching page: {}", num);
-            self.get_page_words(page_size, num)
-                .await?
-                .data
-                .item_list
-                .into_iter()
-                .for_each(|item| self.words.push(item));
-            println!("page: {} Push the item completed", num);
-        }
-        Ok(self.get_words())
-    }
+    fn get_words() -> Vec<WordItem> {
+        // date1: Fri Jul 26 22:48:07 CST 2019
+        // date2: Thu Sep 05 17:03:58 CST 2019
+        // date3: Tue Sep 17 15:51:15 CST 2019
+        let data = r#"[
+        {
+            "itemId": "9cef81095a2a7e35c169c990b37839eb",
+            "bookId": "0",
+            "bookName": "无标签",
+            "word": "Accommodate",
+            "trans": "vt. 容纳；使适应；供应；调解\nvi. 适应；调解",
+            "phonetic": "[ə'kɒmədeɪt]",
+            "modifiedTime": 1564152487000
+        },
+        {
+            "itemId": "3223bb4547bd4bad4f17d31e207c6b3c",
+            "bookId": "0",
+            "bookName": "无标签",
+            "word": "Acronym",
+            "trans": "n. 首字母缩略词",
+            "phonetic": "['ækrənɪm]",
+            "modifiedTime": 1567674238000
+        },
+        {
+            "itemId": "cf5b783279932d2d14d2241f0a166e76",
+            "bookId": "0",
+            "bookName": "无标签",
+            "word": "Antenna",
+            "trans": "n. [电讯] 天线；[动] 触角，[昆] 触须\nn. (Antenna)人名；(法)安泰纳",
+            "phonetic": "[æn'tenə]",
+            "modifiedTime": 1568706675000
+        }]"#;
 
-    pub fn get_words_mut(&mut self) -> &mut Vec<WordItem> {
-        &mut self.words
-    }
-
-    pub fn get_words(&self) -> &Vec<WordItem> {
-        &self.words
-    }
-
-    async fn get_page_words(
-        &self,
-        page_size: usize,
-        page_number: usize,
-    ) -> Result<ResponseResult<Page<WordItem>>, reqwest::Error> {
-        let url = format!(
-            "http://dict.youdao.com/wordbook/webapi/words?limit={}&offset={}",
-            page_size,
-            page_number * page_size
-        );
-        self.client.get(&url)
-            .header("Host", "dict.youdao.com")
-            .header("Connection", "keep-alive")
-            .header("Pragma", "no-cache")
-            .header("Cache-Control", "no-cache")
-            .header("Accept", "application/json, text/plain, */*")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36")
-            .header("Referer", "http://dict.youdao.com/wordbook/wordlist?keyfrom=dict2.index")
-            .header("Accept-Encoding", "gzip, deflate")
-            .header("Accept-Language", "zh-CN,zh;q=0.9")
-            .send()
-            .await?
-            .json::<ResponseResult<Page<WordItem>>>()
-            .await
-    }
-
-    /// 获取youdao set-cookie: outfox_search_user_id，保证后续登录有效
-    async fn get_cookie_outfox_search_user_id<'a>(&self) -> Result<String, reqwest::Error> {
-        let url = "http://account.youdao.com/login?service=dict&back_url=http%3A%2F%2Fdict.youdao.com%2Fwordbook%2Fwordlist%3Fkeyfrom%3Ddict2.index%23%2F";
-        let name = "OUTFOX_SEARCH_USER_ID";
-        self.client.get(url)
-            .header("Host", "account.youdao.com")
-            .header("Connection", "keep-alive")
-            .header("Upgrade-Insecure-Requests", "1")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36")
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
-            .header("Accept-Encoding", "gzip, deflate")
-            .header("Accept-Language", "zh-CN,zh;q=0.9")
-            .send()
-            .await?
-            .cookies()
-            .find(|c| c.name() == name)
-            .map(|c| c.value().to_string())
-            .ok_or_else(|| panic!("not found set cookie: {} in headers", name))
+        serde_json::from_str(data).unwrap()
     }
 }
