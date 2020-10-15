@@ -63,7 +63,6 @@ pub fn parse_headers(params: &str) -> HashMap<String, String> {
 pub struct YoudaoClient {
     client: Client,
     is_loggedin: bool,
-    words: Vec<WordItem>,
 }
 
 impl YoudaoClient {
@@ -81,7 +80,6 @@ impl YoudaoClient {
             .expect("build client error");
         Self {
             client,
-            words: vec![],
             is_loggedin: false,
         }
     }
@@ -153,11 +151,10 @@ impl YoudaoClient {
     /// # panic
     ///
     /// 如果用户未登录
-    pub async fn refetch_words(&mut self) -> Result<&Vec<WordItem>, reqwest::Error> {
+    pub async fn fetch_words(&mut self) -> Result<Vec<WordItem>, reqwest::Error> {
         if !self.is_loggedin {
             panic!("Operation not allowed without login");
         }
-        self.words.clear();
         let total = self.get_page_words(15, 0).await?.data.total;
         let page_size = 1000;
         let page_numbers = (total as f64 / page_size as f64).ceil() as usize;
@@ -165,6 +162,7 @@ impl YoudaoClient {
             "Found available page_numbers: {}, page_size={}, total={}",
             page_numbers, page_size, total
         );
+        let mut words = vec![];
         for num in 0..page_numbers {
             println!("fetching page: {}", num);
             self.get_page_words(page_size, num)
@@ -172,19 +170,12 @@ impl YoudaoClient {
                 .data
                 .item_list
                 .into_iter()
-                .for_each(|item| self.words.push(item));
+                .for_each(|item| words.push(item));
             println!("page: {} Push the item completed", num);
         }
-        Ok(self.get_words())
+        Ok(words)
     }
 
-    pub fn get_mut_words(&mut self) -> &mut Vec<WordItem> {
-        &mut self.words
-    }
-
-    pub fn get_words(&self) -> &Vec<WordItem> {
-        &self.words
-    }
 
     async fn get_page_words(
         &self,
