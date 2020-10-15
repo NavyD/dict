@@ -86,7 +86,7 @@ impl YoudaoClient {
     /// 使用username, password登录youdao. password必须是通过youdao网页端加密过的(hex_md5)，不能是明文密码
     pub async fn login(&mut self, username: &str, password: &str) -> Result<(), reqwest::Error> {
         let outfox_search_user_id = self.get_cookie_outfox_search_user_id().await?;
-        println!(
+        debug!(
             "Have obtained cookie: outfox_search_user_id={}",
             outfox_search_user_id
         );
@@ -128,6 +128,7 @@ impl YoudaoClient {
                 ("agreePrRule", "1"),
             ]).send()
             .await?;
+        debug!("login response: {:?}", resp);
         // 多次登录后可能引起无法登录的问题
         if resp
             .headers()
@@ -135,13 +136,11 @@ impl YoudaoClient {
             .find(|(k, _)| k.as_str().eq_ignore_ascii_case("set-cookie"))
             .is_none()
         {
-            panic!("Frequent login may have been added to youdao blacklist, not found any set-cookie in login resp: {:?}", resp);
+            panic!("Frequent login may have been added to youdao blacklist, not found any set-cookie in login resp");
         }
         if resp.status().as_u16() != 302 {
-            panic!("Login response code is not 302 error: {:?}", resp);
+            panic!("Login response code is not 302 error");
         }
-        resp.cookies()
-            .for_each(|c| println!("{}={}", c.name(), c.value()));
         self.is_loggedin = true;
         Ok(())
     }
@@ -158,20 +157,20 @@ impl YoudaoClient {
         let total = self.get_page_words(15, 0).await?.data.total;
         let page_size = 1000;
         let page_numbers = (total as f64 / page_size as f64).ceil() as usize;
-        println!(
+        info!(
             "Found available page_numbers: {}, page_size={}, total={}",
             page_numbers, page_size, total
         );
         let mut words = vec![];
         for num in 0..page_numbers {
-            println!("fetching page: {}", num);
+            debug!("fetching page: {}", num);
             self.get_page_words(page_size, num)
                 .await?
                 .data
                 .item_list
                 .into_iter()
                 .for_each(|item| words.push(item));
-            println!("page: {} Push the item completed", num);
+            debug!("page: {} Push the item completed", num);
         }
         Ok(words)
     }

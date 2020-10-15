@@ -6,6 +6,8 @@ use youdao_dict_export::youdao_client::*;
 
 use chrono::{TimeZone, Utc};
 use structopt::StructOpt;
+#[macro_use]
+extern crate log;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "basic")]
@@ -13,7 +15,7 @@ struct Opt {
     /// 打印格式。当前支持：min=仅输出单词word
     #[structopt(default_value = "min", long)]
     print_mode: String,
-    
+
     /// 过滤开始时间。格式支持`"%Y-%m-%d`。默认1970-01-01.
     #[structopt(long)]
     start_date: Option<String>,
@@ -34,16 +36,17 @@ struct Opt {
     #[structopt(parse(from_os_str), long)]
     words_file: Option<PathBuf>,
 
-    /// 运行日志级别.
-    #[structopt(long, default_value="debug")]
-    log_level: String,
-
+    /// 是否输出debug日志
+    #[structopt(short)]
+    verbose: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
     // args
     let opt: Opt = Opt::from_args();
+    init_log(opt.verbose);
+
     let mut ws = get_word_store(&opt).await?;
     let words = ws.get_mut_words();
 
@@ -53,10 +56,21 @@ async fn main() -> Result<(), reqwest::Error> {
     Ok(())
 }
 
+fn init_log(verbose: bool) {
+    pretty_env_logger::formatted_builder()
+        // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
+        .filter_level(if verbose {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Warn
+        })
+        .init();
+}
+
 /// 从opt中构造一个可用的WordStore。如果不存在words file则自动加载
-/// 
+///
 /// 如果opt.words_file不存在，则默认为`$HOME/.youdao-words.json`。
-/// 
+///
 /// 如果opt.refetch==true，则从youdao下载并持久化到words file中。否则从words file加载
 async fn get_word_store(opt: &Opt) -> Result<WordStore, reqwest::Error> {
     let path = opt.words_file.as_ref().map_or_else(
@@ -70,36 +84,41 @@ async fn get_word_store(opt: &Opt) -> Result<WordStore, reqwest::Error> {
     );
     if opt.refetch {
         // get words from youdao
-        println!("loading words from youdao client");
         let username = "dhjnavyd@163.com";
         let password = "4ff32ab339c507639b234bf2a2919182";
+        info!("loading words from youdao client");
         let mut youdao = YoudaoClient::new();
         youdao.login(username, password).await?;
-        println!("login successful");
+        debug!(
+            "login successful. username: {}, password: {}",
+            username, password
+        );
         // fetching
         let words = youdao.fetch_words().await?;
         let ws = WordStore::new(words);
         // persist to file
-        println!("persisting words to file: {}", path.to_str().unwrap());
+        debug!("persisting words to file: {}", path.to_str().unwrap());
         if let Err(e) = ws.persist(path) {
             panic!("refetch persisting error: {}", e);
         }
         Ok(ws)
     } else {
-        println!("loading words from file: {}", path.to_str().unwrap());
+        info!("loading words from file: {}", path.to_str().unwrap());
         Ok(WordStore::from_file(path).expect("word store from file error"))
     }
 }
 
 fn print_with_mode(words: &Vec<WordItem>, mode: &str) {
-    println!("starting print with mode: {}, word count: {}", mode, words.len());
-    println!("===================================================");
+    info!(
+        "starting print with mode: {}, word count: {}",
+        mode,
+        words.len()
+    );
     if mode == "min" {
         words.iter().for_each(|w| println!("{}", w.word));
     } else {
         panic!("unsupported mode: {}", mode);
     }
-    println!("===================================================");
 }
 
 /// 取出offset个元素。如果offset<0，则从后取出offset个。如果offset==0则不会过滤任何元素
@@ -112,7 +131,7 @@ fn print_with_mode(words: &Vec<WordItem>, mode: &str) {
 /// filter_offset(&mut words, offset); // words: [2,3]
 /// ```
 fn filter_offset(words: &mut Vec<WordItem>, offset: isize) {
-    println!("filter offset: {}", offset);
+    info!("filter offset: {}", offset);
     if offset > 0 {
         let mut count = words.len() - offset as usize;
         while count > 0 {
@@ -128,7 +147,7 @@ fn filter_offset(words: &mut Vec<WordItem>, offset: isize) {
 
 /// 通过时间区间`[start_date, end_date]`过虑单词并以升序排列。如果end_date is None则以当前时间为准，包含end_date,
 /// 如果start_date is None，则以1970-01-01开始。
-/// 
+///
 /// 格式：`"%Y-%m-%d %H:%M:%S`
 ///
 /// - [Remove an element from a vector](https://stackoverflow.com/a/40310140)
@@ -157,7 +176,7 @@ fn filter_date(words: &mut Vec<WordItem>, start_date: Option<&str>, end_date: Op
     if start_date > end_date {
         panic!("from date: {} > end date: {}", start_date, end_date);
     }
-    println!("filter start_date: {}, end_date: {}", start_date, end_date);
+    info!("filter start_date: {}, end_date: {}", start_date, end_date);
     // remove方式：
     // 不能在foreach中删除remove 导致out of bound
     words.retain(|w| {
