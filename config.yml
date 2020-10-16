@@ -1,0 +1,26 @@
+youdao:
+    username: a
+    password: a
+
+maimemo:
+    username: a
+    password: a
+
+    cookies:
+        # "userToken=cc9ecca33ee51d9e80eef2acb462ad53a68961342e5434f5abccc3e3e1d810fc; expires=Mon, 11-Oct-2021 07:39:50 GMT; Max-Age=31104000; path=/; domain=www.maimemo.com"
+        -
+            name: userToken
+            value: e8c72bad7e803232fbe4e0d8189f2cdad0587830934ff600b030f9e353d4cf68
+            expires: Mon, 11-Oct-2021 07:39:50 GMT
+            max-age: 31104000
+            path: /
+            domain: www.maimemo.com
+        - 
+            name: PHPSESSID
+            value: f57b3f6e88ffc06d905ae9cdff4ffa36
+        -
+            name: Hm_lvt_8d4c70ef9b50f1ed364481083d6a8636
+            value: 1602831063
+        - 
+            name: Hm_lpvt_8d4c70ef9b50f1ed364481083d6a8636
+            value: 1602849979
