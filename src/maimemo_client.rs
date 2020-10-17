@@ -3,8 +3,10 @@ use chrono::{prelude::*, DateTime, NaiveDate};
 use cookie_store::CookieStore;
 use reqwest::{header::*, Client, Method, RequestBuilder};
 use scraper::{Html, Selector};
-use std::fs::{File, OpenOptions};
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
+use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
 struct NotepadByHtml {
@@ -13,20 +15,23 @@ struct NotepadByHtml {
     pub date: NaiveDate,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Notepad {
     id: String,
-    is_private: bool,
-    notepad_id: usize,
+    is_private: u8,
+    notepad_id: String,
     title: String,
-    created_time: DateTime<Local>,
-    updated_time: DateTime<Local>,
+    brief: String,
+    created_time: String,
+    updated_time: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 struct ResponseResult {
     error: String,
     valid: i32,
     total: usize,
-    notepad: Option<Vec<NotepadByHtml>>,
+    notepad: Option<Vec<Notepad>>,
 }
 
 pub struct MaimemoClient {
@@ -106,10 +111,14 @@ impl MaimemoClient {
         }
     }
 
-    pub fn has_logged(&self) -> bool {
+    pub fn get_user_token_val(&self) -> Option<&str> {
         self.cookie_store
             .get("www.maimemo.com", "/", &self.user_token_name)
-            .is_some()
+            .map(|c| c.value())
+    }
+
+    pub fn has_logged(&self) -> bool {
+        self.get_user_token_val().is_some()
     }
 
     /// 登录并更新config.cookies
@@ -133,12 +142,12 @@ impl MaimemoClient {
                 .get_form()
                 .ok_or(format!("not found any form in req name: {}", req_name))?,
         );
-        trace!("request: {:?}", req_builder);
+        debug!("request: {:?}", req_builder);
         let resp = req_builder.send().await.map_err(|e| format!("{:?}", e))?;
-        trace!("response: {:?}", resp);
+        debug!("response: {:?}", resp);
         // login failed
         if resp.status().as_u16() != 200
-            || resp
+            || resp // find user token
                 .cookies()
                 .find(|c| c.name() == self.user_token_name)
                 .is_none()
@@ -164,6 +173,164 @@ impl MaimemoClient {
             }
         }
     }
+
+    /// 获取notepad list
+    pub async fn get_notepad_list(&mut self) -> Result<Vec<Notepad>, String> {
+        if !self.has_logged() {
+            return Err("not logged in".to_string());
+        }
+        // self.show().await.map_err(|e| format!("{:?}", e))?;
+        let req_name = "notepad-search";
+        let req_config = get_request_config(&self.config, req_name)
+            .ok_or(format!("not found req config with req_name: {}", req_name))?;
+        let url = self
+            .get_user_token_val()
+            .map(|val| {
+                let mut url = req_config.get_url().to_string();
+                url.push_str(val);
+                url
+            })
+            .ok_or(format!("not found url"))?;
+        let payload = serde_json::json!({"keyword":null,"scope":"MINE","recommend":false,"offset":0,"limit":30,"total":-1});
+        let resp = send_request(
+            &self.client,
+            &self.cookie_store,
+            req_config,
+            &url,
+            Some(&payload),
+        )
+        .await?;
+        if resp.status().as_u16() != 200 {
+            let s = format!("{:?}", resp);
+            error!(
+                "login failed. resp: {}\nbody:{}",
+                s,
+                resp.text().await.map_err(|e| format!("{:?}", e))?
+            );
+            return Err("login failed".to_string());
+        } else {
+            update_set_cookies(&mut self.cookie_store, &resp, &url);
+            let result = resp
+                .json::<ResponseResult>()
+                .await
+                .map_err(|e| format!("{:?}", e))?;
+            if result.valid != 1 || result.notepad.is_none() {
+                warn!("get notepad failed: {:?}", result);
+                return Err("get notepad failed".to_string());
+            }
+            Ok(result.notepad.unwrap())
+        }
+    }
+
+    /// 获取notepad中单词文本
+    pub async fn get_notepad(&self, notepad_id: &str) -> Result<String, String> {
+        if !self.has_logged() {
+            return Err("not logged in".to_string());
+        }
+        let req_name = "notepad-detail";
+        let req_config = get_request_config(&self.config, req_name)
+            .ok_or(format!("not found req config with req_name: {}", req_name))?;
+        let url = req_config.get_url().to_owned() + notepad_id;
+        let resp = send_request(
+            &self.client,
+            &self.cookie_store,
+            req_config,
+            &url,
+            None::<&str>,
+        )
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+        if resp.status().as_u16() != 200 {
+            debug!("Failed to fetch notepad response: {:?}", resp);
+            return Err(format!("fetch notepad failed"));
+        }
+        Self::parse_notepad_text(&resp.text().await.map_err(|e| format!("{:?}", e))?)
+    }
+
+    /// 刷新下载notepad对应的captcha返回文件全路径
+    pub async fn refresh_captcha(&self) -> Result<PathBuf, String> {
+        if !self.has_logged() {
+            return Err("not logged in".to_string());
+        }
+        let req_name = "service-captcha";
+        let req_config = get_request_config(&self.config, req_name)
+            .ok_or(format!("not found req config with req_name: {}", req_name))?;
+        let url = req_config.get_url().to_owned() + &Local::now().timestamp_nanos().to_string();
+        let resp = send_request(
+            &self.client,
+            &self.cookie_store,
+            req_config,
+            &url,
+            None::<&str>,
+        )
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+        if resp.status().as_u16() != 200 {
+            debug!("Failed to fetch captcha response: {:?}", resp);
+            return Err(format!("fetch captcha failed"));
+        }
+        let contents = resp
+            .bytes()
+            .await
+            .map(|body| body.to_vec())
+            .map_err(|e| format!("{:?}", e))?;
+        let path = fs::canonicalize(self.get_captcha_path()).map_err(|e| format!("{:?}", e))?;
+        debug!(
+            "writing the content of captcha to the file: {}",
+            path.to_str().unwrap()
+        );
+        fs::write(path.to_owned(), contents).map_err(|e| format!("{:?}", e))?;
+        Ok(path)
+    }
+
+    pub async fn save_notepad(&self, notepad: &Notepad, contents: String, captcha: &str) -> Result<(), String> {
+        let req_name = "notepad-save";
+        let req_config = get_request_config(&self.config, req_name)
+        .ok_or(format!("not found req config with req_name: {}", req_name))?;
+        let url = req_config.get_url();
+        let mut form = std::collections::HashMap::new();
+        form.insert("id".to_string(), notepad.notepad_id.to_string());
+        form.insert("title".to_string(), notepad.title.to_string());
+        form.insert("brief".to_string(), notepad.brief.to_string());
+        form.insert("content".to_string(), contents);
+        form.insert("is_private".to_string(), notepad.is_private.to_string());
+        form.insert("captcha".to_string(), captcha.to_string());
+        let resp = send_request(
+            &self.client,
+            &self.cookie_store,
+            req_config,
+            &url,
+            Some(&form_map_to_body(&form)),
+        )
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+        if resp.status().as_u16() != 200 {
+            debug!("Failed to save_notepad response: {:?}", resp);
+            return Err(format!("save_notepad failed"));
+        }
+        Ok(())
+    }
+
+    pub fn get_captcha_path(&self) -> &str {
+        &self.config.get_captcha_path()
+    }
+
+    /// 从response html body中取出单词文本
+    fn parse_notepad_text(html: &str) -> Result<String, String> {
+        let id = "#content";
+        let id_selector = Selector::parse(id).map_err(|e| format!("{:?}", e))?;
+        let document = Html::parse_document(html);
+        document
+            .select(&id_selector)
+            .next()
+            .map(|e| e.inner_html())
+            .ok_or_else(|| {
+                debug!("not found element {} in html: \n{}", id, html);
+                format!("not found element {} in html", id)
+            })
+    }
+
+    
 
     /*
     /// 解析`https://www.maimemo.com/notepad/show` html页面并返回一个notepad list。
@@ -247,35 +414,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_notepad_list_test() -> Result<(), String> {
-        // let html = r#"<ul class="clearFix" id="notepadList"><li><span class="cloud-title"><a href="https://www.maimemo.com/notepad/detail/577168?scene=" class="edit">new_words</a></span><span class="cloud-literary"><a href="https://www.maimemo.com/notepad/detail/577168?scene=" class="edit">新单词</a></span><div class="cloud-Fabulous"><span class="clearFix"><span class="zan"><i class="icon icon-font"></i>1</span><span class="name" title="">navyd</span></span><span class="series">编号:577168&nbsp;&nbsp;时间:2019-07-17</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标签：其他</div><p class="formula" style="clear: both; margin-top: 12px; display: none">undefined</p></li><li><span class="cloud-title"><a href="https://www.maimemo.com/notepad/detail/695835?scene=" class="edit">11_19</a></span><span class="cloud-literary"><a href="https://www.maimemo.com/notepad/detail/695835?scene=" class="edit">words</a></span><div class="cloud-Fabulous"><span class="clearFix"><span class="zan"><i class="icon icon-font"></i>1</span><span class="name" title="">navyd</span></span><span class="series">编号:695835&nbsp;&nbsp;时间:2019-11-19</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标签：</div><p class="formula" style="clear: both; margin-top: 12px; display: none">undefined</p></li><li><span class="cloud-title"><a href="https://www.maimemo.com/notepad/detail/325025?scene=" class="edit">墨墨学员_3430044的云词本1</a></span><span class="cloud-literary"><a href="https://www.maimemo.com/notepad/detail/325025?scene=" class="edit">无简介</a></span><div class="cloud-Fabulous"><span class="clearFix"><span class="zan"><i class="icon icon-font"></i>1</span><span class="name" title="">navyd</span></span><span class="series">编号:325025&nbsp;&nbsp;时间:2018-08-19</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标签：</div><p class="formula" style="clear: both; margin-top: 12px; display: none">undefined</p></li></ul>"#;
-        // let notepads = MaimemoClient::parse_notepads(html.to_string())?;
-        // let id = 577168;
-        // assert_eq!(
-        //     &NotepadByHtml {
-        //         id,
-        //         name: "new_words".to_string(),
-        //         date: NaiveDate::from_ymd(2019, 7, 17)
-        //     },
-        //     notepads.iter().find(|n| n.id == id).unwrap()
-        // );
-        Ok(())
-    }
-
-    #[test]
-    fn parse_notepads_from_file() -> Result<(), String> {
-        // let result_converter = |e: ParseError<_>| format!("parse error. kind: {:?}, location: {:?}", e.kind, e.location);
-
-        let result_converter = |e| format!("parse error. kind");
-        let notepad_list_selector = Selector::parse("td.line-content").map_err(result_converter)?;
-        let path = "notepads.html";
+    fn parse_notepad_words_from_file() -> Result<(), String> {
+        let path = "notepad.html";
         let html = std::fs::read_to_string(path).map_err(|e| format!("{}", e))?;
-        let document = Html::parse_document(&html);
-        println!("{:?}", document.errors);
-        for li in document.select(&notepad_list_selector) {
-            println!("{:?}", li)
-        }
-        // assert_eq!(3, notepads.len());
+        let words = MaimemoClient::parse_notepad_text(&html)?;
+        assert!(words.len() > 0);
+        assert!(words.contains("墨墨学员_3430044的云词本1"));
         Ok(())
     }
 }

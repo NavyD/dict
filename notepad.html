@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta http-equiv="cleartype" content="on" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+	<meta content="no-cache" http-equiv="cache-control" />
+	<meta name="viewport" content="width=device-width,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+	<meta name="renderer" content="webkit">
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+	<meta name="apple-mobile-web-app-title" content="" />
+	<link type="image/x-icon" href="https://www.maimemo.com/res/style/site/default/css/images/favicon.ico"
+		rel="Shortcut Icon" />
+	<title>墨墨背单词 - 高效抗遗忘，轻松规划海量词汇记忆。</title>
+	<meta name="keywords" content="墨墨,背,单词,词汇,英语,记忆,字典,雅思,新概念,小学,初中,高中,大学,四级,六级,专四,专八,考研,托福,GRE,GMAT,BEC,新东方,星火,红宝书" />
+	<meta name="description" content="墨墨背单词 - 高效抗遗忘，轻松规划海量词汇记忆。" />
+	<meta name="robots" content="index,follow" />
+
+
+	<link charset="UTF-8" rel="stylesheet" type="text/css"
+		href="https://www.maimemo.com/res/style/site/default/css/public.min.css?v=85321479" />
+	<link charset="UTF-8" rel="stylesheet" type="text/css"
+		href="https://www.maimemo.com/res/style/site/default/css/memo.min.css?v=85321479" />
+	<script type="text/javascript" src="https://www.maimemo.com/res/library/original/respond/respond.min.js"></script>
+	<script type="text/javascript" src="https://www.maimemo.com/res/library/jquery/jquery-1.12.4.min.js"></script>
+	<script type="text/javascript"
+		src="https://www.maimemo.com/res/library/original/statistics/baidu.statistics.min.js"></script>
+	<base href="." />
+</head>
+
+<body>
+	<div class="navbar navbar-momo">
+		<div class="container">
+			<div class="navbar-header">
+				<a class="logo" href="https://www.maimemo.com/">
+					<img src="https://www.maimemo.com/res/images/site/logo4.png" />
+				</a>
+					<a href="https://www.maimemo.com/" class="navbar-brand">墨墨背单词</a>
+			</div>
+			<!-- navigator for mobile -->
+			<div class="nav-min">
+				<div class="flex">
+					<div class="col-flex"><a href="https://www.maimemo.com/">首页</a></div>
+					<div class="col-flex"><a href="https://www.maimemo.com/home/voc_test">测试</a></div>
+					<div class="col-flex"><a href="https://www.maimemo.com/shop">上限</a></div>
+					<div class="col-flex dropdown">
+						<a href="#" class="dropdown-toggle btn-chat"
+							data-toggle="dropdown">编辑<span class="arrow"></span></a>
+						<ul class="dropdown-menu">
+							<li>
+								<a href="https://www.maimemo.com/custom/show/phrase">我的例句</a>
+							</li>
+							<li>
+								<a href="https://www.maimemo.com/custom/show/note">我的助记</a>
+							</li>
+						</ul>
+					</div>
+					<div class="col-flex dropdown">
+						<a href="#" class="dropdown-toggle btn-chat"
+							data-toggle="dropdown">我的<span class="arrow"></span></a>
+						<ul class="dropdown-menu right">
+							<li>
+								<span style="white-space:nowrap;padding:0 4px;overflow:hidden;text-overflow:ellipsis;display:block;font-size:12px;">
+                                    navyd                                </span>
+							</li>
+							<li>
+								<a href="https://www.maimemo.com/account/password">修改密码</a>
+							</li>
+							<li>
+								<a href="https://www.maimemo.com/account/history">订单记录</a>
+							</li>
+							<li>
+								<a href="https://www.maimemo.com/auth/logout" class="btn-chat">登出</a>
+							</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			<!-- navigator for pc -->
+			<div class="navbar">
+				<div class="container-fluid">
+					<div class="collapse navbar-collapse">
+						<ul class="nav navbar-nav">
+							<li class="">
+								<a href="https://www.maimemo.com/">首页下载</a>
+							</li>
+							<li class="">
+								<a href="https://www.maimemo.com/home/voc_test">词汇量测试<span class="sr-only"></span></a>
+							</li>
+							<li class="">
+								<a href="https://www.maimemo.com/shop">增加上限<span class="sr-only"></span></a>
+							</li>
+							<li class="dropdown active">
+								<a href="#" id="dropdown-pc" class="dropdown-toggle" data-hover="dropdown"
+									data-delay="0" data-close-others="false">我的编辑</a>
+								<a href="#" id="dropdown-phone" class="dropdown-toggle" data-toggle="dropdown2">我的编辑</a>
+								<span class="sr-only"></span>
+								<ul class="dropdown-menu">
+									<li>
+										<a href="https://www.maimemo.com/custom/show/phrase">我的例句</a>
+									</li>
+									<li>
+										<a href="https://www.maimemo.com/custom/show/note">我的助记</a>
+									</li>
+									<li>
+										<a href="https://www.maimemo.com/notepad/show" class="btn-chat">我的词库</a>
+									</li>
+								</ul>
+							</li>
+						</ul>
+						<ul class="nav navbar-nav navbar-right">
+							<li class="dropdown ">
+								<a href="#" class="dropdown-toggle" data-toggle="dropdown" data-hover="dropdown"
+									data-delay="0" data-close-others="false">
+									<span class="avar">
+										<img src="http://cdn.maimemo.com/avatar/default.png" width="25" />
+									</span>
+									<span title="navyd" class="customer">navyd</span>
+								</a>
+								<ul class="dropdown-menu tl">
+									<li>
+										<a
+											href="https://www.maimemo.com/account/password"><i class="iconfont i-geren"></i>修改密码</a>
+									</li>
+									<li>
+										<a
+											href="https://www.maimemo.com/account/history"><i class="iconfont i-yijian"></i>订单记录</a>
+									</li>
+									<li>
+										<a href="https://www.maimemo.com/auth/logout"
+											class="btn-chat"><i class="iconfont i-dengchu"></i>登出</a>
+									</li>
+								</ul>
+							</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="banner autoHeight">
+		<div id="notepad" class="container wid870" style="background: #fff;">
+			<div class="news-container">
+				<div class="Inside-title">
+					<h2>编辑云词库</h2>
+				</div>
+				<dl class="clearFix">
+					<dt>
+						<b>标题</b>／最少1个字符, 最多48个字符, 已输入<i id="titleLength">0</i>个
+					</dt>
+					<dd>
+						<input class="clickInput input-box1" type="text" id="title"  value="墨墨学员_3430044的云词本1" />
+					</dd>
+					<dt>
+						<b>简介</b>／最少1个字符, 最多256个字符, 已输入<i id="briefLength">0</i>个
+					</dt>
+					<dd>
+						<input class="clickInput input-box2" type="text" id="brief"  value="无简介" />
+					</dd>
+					<dt>
+						<b>英文文本</b>／最少1个字符, 最多250000个字符, 已输入<i id="contentLength">0</i>个
+					</dt>
+					<dd>
+						<div class="clickInput input-box3">
+							<textarea id="content" >标题 = 墨墨学员_3430044的云词本1
+简介 = 无简介
+标签 = 
+
+# 2020-10-15
+library
+comparison
+apt
+earlier
+chef
+bartender
+seat
+noble
+pronounce
+
+# 2020-10-13
+toward
+correlation
+deviate
+mercurial
+phrase
+circular
+appeal
+leadership
+overview
+twee
+rear
+thick
+gorgeous
+traffic lights
+take care
+monotonous
+except that
+hilariously
+soundness
+cow
+sheep
+finalize
+noise
+coincide
+capacity
+facet
+rabbit
+tall
+prolong
+even if
+as for
+evil
+liberty
+nonetheless
+obstacle
+era
+comment out
+idempotent
+chalkboard
+floor
+staircase
+
+#2020-6-26
+ material 
+ emit 
+ trick 
+ feat 
+ quite 
+ clap 
+ expand 
+ signify 
+ readiness 
+ follow up  
+disturb 
+ carousel 
+ compliment 
+ fart 
+ fence 
+ extern 
+ metal 
+ bare 
+ gist 
+ stash 
+ robber 
+ demoralize 
+ stair 
+ curious 
+ primer 
+ unpolish  
+broader 
+ mentor 
+ caret 
+ breeze 
+ fuzzy 
+ newbie 
+ profit 
+ lexical 
+ piston 
+ ridiculous 
+ shout 
+
+#2020-6-1
+ taint 
+ carve 
+ haunt 
+ dread 
+ roundabout 
+ vomit 
+ goodness 
+ plenty 
+ instructive 
+ leave off  
+
+trial-and-error  
+
+trial 
+ asymptotic 
+ would 
+ stink 
+ augmentation 
+ reaction 
+ trash 
+ madness 
+ coincidentally 
+ hairy 
+ symmetry 
+ snooze 
+ mung 
+ could 
+ nuisance 
+ moral 
+ cool off  
+backward 
+ circus 
+ sharpen 
+ attention 
+ everywhere 
+ traverse 
+ crucial 
+ consideration 
+ smoothen 
+ expansive 
+ shallow 
+ refer to  
+spoil 
+ crosswalk 
+ meaty 
+ occasion 
+ resort 
+ unwieldy 
+ disclaimer 
+ after all  
+admit 
+ admittedly 
+ thankfully 
+ mess up  
+anymore 
+ throttle 
+ hard-nosed 
+ nose 
+ disjoint 
+ pray 
+ stuff 
+ burn 
+ dang 
+ fall over  
+farther 
+ analogy 
+ in fact  
+ as well  
+ constituent 
+ bread-and-butter 
+ butter 
+ boggling 
+ dawn 
+ bitwise  
+perfect 
+ dim 
+ monotonicity 
+ insight 
+ veil 
+
+
+#2020-5-18
+in fact  
+
+as well  
+constituent 
+ bread-and-butter 
+ butter 
+ boggling 
+ dawn 
+ bitwise  
+
+perfect 
+ dim 
+ monotonicity 
+ insight 
+ veil 
+ thinly 
+ left out  
+
+tangled 
+ tangle 
+ dodge 
+ scare 
+ scare off  
+ endeavour 
+ demote 
+ marginally 
+ weirdly 
+ blow 
+ nevermind 
+ nervous 
+ affair 
+ ubiquitous 
+ polite 
+ rude 
+ lame 
+ loan 
+ delicious 
+ upsetting 
+ outbreak 
+ definitely 
+ appreciable 
+ hoist 
+ slick 
+ potential 
+ junk 
+ casually 
+ fancy 
+ approximate 
+ approximately 
+ hush 
+ delicate 
+ beast 
+ apart 
+ align 
+ padding 
+ decent 
+ proportional 
+ settle 
+ paragraph 
+ rebut 
+ apparent 
+ celebrity 
+ bizarre 
+ blatantly 
+ obligatory 
+ dense 
+ heck 
+ authentic 
+ futz 
+ awful 
+ meantime 
+ ambitious 
+ pop off  
+grinding 
+ havoc 
+ carriage 
+ lossy 
+ quarantine 
+ lift 
+ exclamation 
+ declarative 
+
+# 2020-5-10
+synonym 
+ elide 
+ orphan 
+ somewhere 
+ frown 
+ harm 
+ fallible 
+ inherently 
+ ego 
+ panoply 
+ uphold 
+ formal 
+ pop up  
+irrefutable 
+ refute 
+ delegate 
+ transition 
+ scatter 
+ ligature 
+ crux 
+ in regard to  
+refrain 
+ wherever 
+ fledged 
+ fledge 
+ workaround 
+ fallen out  
+made up  
+coin 
+ wonder 
+ subtle 
+ suspect 
+ conference 
+ enthusiast 
+ transference 
+ travel 
+ rubber 
+ slogan 
+ deliberately 
+ governance 
+ colloquially 
+ mitigate 
+ dogmatic 
+ mentally 
+ nickname 
+ inherent 
+ beforehand 
+ govern 
+ bend 
+ uproar 
+ coercion 
+ multiplication 
+ break down  
+distraction 
+ jargon 
+ dialect 
+ deduce 
+ uniform 
+ digression 
+ somehow 
+ on the other hand  
+violation 
+ mangle 
+ shy 
+
+# 2020-4-29
+yank 
+ rectify 
+ aid 
+ unroll 
+ roughly 
+ commonplace 
+ tough 
+ shoe 
+ chain 
+ gloss 
+ inline 
+ rigidly 
+ unify 
+ hydrate 
+ intensity 
+ workout 
+ hypothetical 
+ dexterity 
+ hazard 
+ spoiler alert  
+
+influence 
+ inspiration 
+ subtlety 
+ pinpoint 
+ partial 
+ surface 
+ converse 
+ portion 
+ burden 
+ presence 
+ essay 
+ underway 
+ elision 
+ outlive 
+ appear to  
+glance 
+ emerge 
+ deterministic 
+ distant 
+ warehouse 
+ hypothesis 
+ approve 
+ apostrophe 
+ implicit 
+ dire 
+ conclude 
+ intent 
+ seasoned 
+ unwind 
+ symptom 
+ commitment 
+ asterisk 
+ disregard 
+ homogeneous 
+ revert 
+ diacritic 
+
+# 2020-4-23
+diacritic 
+ clue 
+ coerce 
+ elsewhere 
+ propensity 
+ idiomatic 
+ repetitive 
+ portal 
+ induction 
+ preference 
+ admission 
+ reinforce 
+ medical 
+ proof 
+ as much as  
+derivative 
+ proven 
+ handshake 
+ attend 
+ accompany 
+ boundary 
+ privacy 
+ metaphor 
+ structure 
+ dishwasher 
+ kitchen 
+ industry 
+ namely 
+ bump 
+ legendary 
+ interact 
+ whenever 
+ spot 
+ disruption 
+ super-duper 
+
+#2020-4-15
+whenever 
+ spot 
+ disruption 
+ super-duper 
+ gather 
+ be spotted  
+beside 
+ consequence 
+ permissive 
+ comprise 
+ conceal 
+ deject 
+ dash 
+ ledge 
+ stockpile 
+ wood 
+ cage 
+ dwarf 
+ in effect  
+ intense 
+ algebraic 
+ enumerate 
+ rectangle 
+ thicker 
+ piece 
+ surround 
+ pile 
+ worry 
+ dangle
+
+#first
+conceptually
+constitute
+corporate
+critical
+deem
+elect
+malicious
+mention
+recap
+transparent
+transparently
+certificate
+cipher
+compliant
+comprehensive
+cryptographic
+emphasis
+encompass
+interoperable
+malevolent
+probe
+robustness
+vast
+
+flagship
+mutually
+parenthesis
+general
+heterogeneous
+prepend
+promiscuous
+duplicate
+pertain
+trawl
+tremendously
+extremely
+assign
+distribute
+foster
+lite
+passionate
+serve
+tether
+workbench
+authenticated
+compile
+principal
+tricky
+affect
+and even
+effect
+interfere
+be packed with
+troubleshoot
+clip
+refrigerator
+warranty
+corpse
+ass
+constantly
+run out
+simulate
+optical
+optical disk
+belong with
+fear
+fearless
+awesome
+get away
+cutoff
+brilliant
+in sum
+willpower
+pretty much
+aligned
+arrogant
+bullshit
+confident
+couch
+devoted
+dick
+drank
+elegant
+figure it out
+figure out
+level up
+overwhelming
+passion
+portable
+quotient
+realized
+recruiting
+
+#2018-12-24
+lenient
+authority
+contemplate
+crop
+crop up
+head back
+interchangeable
+onward
+prefer
+proceed
+provision
+remainder
+
+#2018-12-31
+
+telemetry
+supercharge
+deprecate
+disambiguate
+escape
+among
+and vice versa
+compromise
+enemy
+exponent
+notable
+robust
+vicious
+enormous
+lenient
+maiden
+notoriously
+personally
+universally
+bot
+circumvent
+disclosure
+dongle
+eavesdrop
+essence
+labor
+thwart
+vulnerable
+
+#2019-1-6
+
+round down
+spew
+suck
+surf
+verbose
+waist
+waist deep
+be connected with
+digest
+every
+horrible
+how come
+pretty
+recruit
+technically
+thoughtful
+celebrate
+predominant
+predominantly
+nominal
+strictly
+antigravity
+pin
+intensive
+indent
+hook
+collapse
+angular
+adhere
+delightful
+pros and cons
+whatever
+former
+as well as
+cater
+presented
+ternary
+derive
+derived
+exhibit
+accolade
+anew
+attendant
+be attached to
+compel
+compelling
+excellent
+impact
+impact on
+instrumental
+invariably
+other than
+placeholder
+profound
+proposition
+prudent
+rollover
+undertake
+additively
+albeit
+behind the scenes
+biological
+by definition
+certain
+course of action
+descendant
+elapse
+fundamental
+moderately
+more often than not
+moreover
+over and over
+parenthood
+pertaining
+reply
+sophisticated
+substitution
+suppressed
+threshold
+externalize
+except
+be populated with
+identical
+in combination with
+narrow
+overlaid
+overlay
+sanitize
+bubble up
+dedicate
+glob
+
+# 2019-1-11
+
+trait
+sustainable
+checkout
+colleague
+crevice
+flavor
+ground
+ground up
+historical
+overlap
+permanent
+podcast
+progressive
+reveal
+revisit
+slight
+track
+undermine
+synthetic
+
+# 2019-1-28
+recipient
+contiguous
+in terms of
+crucially
+leverage
+mind
+remember
+commence
+glob
+incidentally
+mutate
+negotiation
+precedence
+representation
+resemble
+arguably
+bundle
+dictate
+glue
+gluing
+neither
+resolve
+look at
+prefix
+suffix
+post
+resume
+tutorial
+tweak
+fulfilled
+accidentally
+along with
+as long as
+be bound to
+bound
+come with
+dispatch
+exploded
+fiddle
+in turn
+locale
+parallel to
+prerequisite
+simplicity
+vice
+workflow
+achieve
+curate
+diverge
+impatient
+miscellaneous
+opinionated
+refine
+advice
+around
+behalf
+capable
+central
+competition
+complementary
+inform
+informed
+predicate
+rationale
+regular
+seamless
+seamlessly
+strive
+take part in
+tenet
+though
+below
+handful
+occasionally
+scale up
+terminology
+be tied to
+downside
+in particular
+isolation
+mock
+propagation
+recover
+review
+stub
+
+# 2019-2-15
+description
+gratification
+shorthand
+meal
+anyway
+inference
+sticker
+closure
+grab
+heavy
+tradeoff
+worthwhile
+adorn
+almost
+con
+conditionally
+extensively
+fairly
+meant
+originate
+pro
+thereby
+unadorned
+weave
+weaver
+as always
+assume
+bootstrap
+facilities
+literally
+programmatically
+versatile
+brutal
+dictator
+exclude
+fallback
+look for
+look up
+narrow down
+nevertheless
+regardless
+stateful
+subsequent
+clash
+participate
+respectively
+advocate
+alphanumeric
+compatible
+conventionally
+exotic
+introspect
+inverse
+notice
+present
+sense
+themselves
+therefore
+hire
+introspection
+versus
+nested
+occurrence
+sensible
+slot
+angle bracket
+cascade
+contract
+excel
+ideally
+infer
+inferred
+intercept
+invasive
+manipulate
+opposite
+preceding
+salient
+semantic
+serious
+so that
+strange
+that is
+as a rule
+as of
+in contrast to
+out of the box
+prototype
+regard to
+adequate
+aforementioned
+
+# 2019-3-3
+regard to
+adequate
+aforementioned
+ambiguity
+amenable
+analogous
+as opposed to
+backbone
+clarity
+coherent
+collaborator
+comma
+convey
+correspond
+cost
+coverage
+designate
+discover
+diverse
+embrace
+encapsulate
+encapsulated
+exactly
+exclusively
+explicit
+extent
+forego
+foremost
+hindrance
+idiomatically
+imply
+infrastructure
+injection
+innovate
+instead of
+integral
+interceptor
+interdependency
+introduce
+inversion
+just as well
+mandatory
+motivation
+negate
+notation
+over time
+parlance
+pick
+precede
+presentation
+pretend
+properly
+reason
+recipe
+responsible
+semicolon
+situation
+span
+standalone
+succinct
+superset
+sweet spot
+thorough
+topical
+totally
+traditional
+transactional
+translate
+trivial
+typos
+upfront
+variant
+whenever
+whereas
+whereby
+wire
+bracket
+brevity
+complexity
+gradually
+inclusion
+instrument
+visually
+either way
+scratch
+misconception
+destruction
+persistent
+populate
+slash
+tier
+hub
+adoption
+architecture
+authentication
+authorization
+auxiliary
+behind
+breadth
+cornerstone
+counterpart
+credential
+cryptography
+denominator
+heavily
+internally
+intricacies
+introduction
+intuitive
+mandate
+met
+nor
+novice
+obtuse
+occur
+predecessor
+realm
+shortcoming
+somewhat
+tendency
+term
+tolerable
+adopt
+appreciate
+as soon as
+clarification
+obsolete
+scrub
+matrix
+frustrate
+incident
+indeed
+as far as
+feed
+hinder
+innovative
+ordinary
+rid
+shave
+simultaneously
+vibrant
+hack
+hack on
+aggregate
+brittle
+compact
+compactly
+concise
+cumbersome
+excerpt
+conceptual
+cull
+orderly
+spurious
+idle
+propagate
+suffice
+abrupt
+#2019-04-03
+abrupt
+accordingly
+advisory
+along
+aspect
+attain
+bypass
+conservative
+copy with
+dormant
+either
+institution
+minor
+ongoing
+protect
+respect
+sake
+start out
+storm
+stuck
+suppress
+trap
+treat
+turn out
+with respect to
+abruptly
+accommodate
+across
+address
+an
+bookkeeping
+daemon
+degrade
+demand
+efficiency
+especially
+ever
+excess
+exhaustion
+finite
+frequently
+hand off
+handoff
+interleave
+lockup
+manner
+messiness
+overhead
+queue
+representable
+saturate
+scenario
+straightforward
+supply
+timely
+trade
+transient
+tune
+urge
+versa
+accumulation
+capitalize
+concatenate
+contradiction
+criterion
+decommission
+denote
+ditch
+exceptional
+facilitate
+failsafe
+finer
+groundwork
+hang
+hyphenate
+inception
+incorporate
+inspect
+instruct
+intermediate
+interpret
+malformed
+mechanism
+mediation
+notion
+notwithstanding
+plain
+reside
+rogue
+shave off
+snippet
+tight
+unhindered
+worse
+against
+diagnose
+dimensional
+embed
+impose
+incur
+protest
+superfluous
+transitive
+conform
+couple
+decouple
+granularity
+lightweight
+steal
+tedious
+absence
+accrual
+amount
+annual
+arbitrary
+as such
+awkward
+be clear about
+bear
+bear in mind
+clear
+close
+closest
+conclusion
+consensus
+considerable
+conversion
+deployment
+eligible
+epoch
+expiry
+facto
+leap
+leap second
+monotonically
+neutral
+notional
+past
+persistence
+practical
+pure
+retrieve
+retrieved
+slightly
+spin
+throughout
+throughput
+vital
+weakly
+weakly
+weakly
+authoritative
+boilerplate
+canonical
+caveat
+defer
+evict
+expire
+population
+prone
+radically
+redundant
+silent
+substitute
+# 2019-12-9
+outbound  
+sped  
+periodic  
+envelope  
+reduce  
+encrypt  
+issue  
+measure  
+appropriate  
+enforce  
+callout  
+tenant  
+enforcement  
+amplitude
+# 2020-1-4
+nick  
+minimal  
+strip  
+distinguish  
+centralize  
+arrangement  
+asymmetric  
+mindful  
+supersede  
+side by side  
+11, hand on  
+sequel  
+octet  
+preamble  
+closet  
+rack  
+curse  
+heuristic  
+conjecture  
+permutation  
+outbound
+
+# 2020-3-5
+coordinate 
+ snip 
+ fleet 
+ lane 
+ disruption 
+ replicate 
+ intrusive 
+ exact 
+ bumper to bumper  
+ bumper 
+ catch up 
+ delimit 
+ retain 
+ domestic 
+ resilient 
+ alleviate 
+ sleek 
+ opaque 
+ alongside 
+ peek 
+ lunar 
+ cute 
+ likelihood 
+ sniffing 
+ sniff 
+ nick 
+ rope
+# 2020-03-11
+diagonal 
+ outright 
+ suboptimal 
+ season 
+ abnormal  
+catastrophic 
+ intimidate 
+ harsh 
+ sarcastic 
+ Rave 
+ bloat 
+ time to time  
+permit  
+pipe 
+ detach
+#2020-03-24
+ruin 
+ recall 
+ catchall 
+ criteria 
+ regression 
+ crab 
+ prelude 
+ Panic 
+ intricate 
+ so far
+ macro 
+ curly 
+ anatomy 
+ throughout 
+ derivable 
+ appendix 
+ smorgasbord 
+ trait 
+ construct 
+ meticulous 
+ particular 
+ dirty 
+ hands-on 
+ delve 
+ Overall  
+stakeholder 
+ endeavor 
+ hassle 
+ tackle 
+ natural 
+ fickle 
+ eliminate 
+ lest 
+ caution 
+ infamous 
+ arcane 
+ empowerment 
+ ergonomic 
+ pronouns 
+ crustacean 
+ mascot 
+ glad 
+ crate 
+ imperative 
+ obscure 
+ prune
+#2020-3-30
+pile 
+ worry 
+ dangle 
+ erroneously 
+ likewise 
+ ampersand 
+ wrinkle 
+ blob 
+ contemporary 
+ abbreviate 
+ plate 
+ preparation 
+ clutter 
+ contradict 
+ pervasive 
+ tuple 
+ intuition 
+ accent 
+ keep in mind  
+compound 
+ scalar 
+ earn 
+ even though  
+nudge 
+ trait 
+ throughout</textarea>
+						</div>
+					</dd>
+				</dl>
+				<dl class="clearFix">
+					<dt>
+						<b>公开词库</b> ／是否公开此云词库
+					</dt>
+					<dd class="classification" id="notepadPrivacy">
+						<a href="#" data-private="1" class="active">私有</a>
+						<a href="#" data-private="0" class="">公开</a>
+					</dd>
+				</dl>
+				<dl class="clearFix">
+					<dt>
+						<b>词库分类</b>／最多3个分类
+					</dt>
+					<dd class="classification" id="notepadTags" data-length="3">
+						<a href="#" class="" data-tag="234" data-active="1">小学</a>
+						<a href="#" class="" data-tag="235" data-active="1">初中</a>
+						<a href="#" class="" data-tag="236" data-active="1">高中</a>
+						<a href="#" class="" data-tag="237" data-active="1">大学教科书</a>
+						<a href="#" class="" data-tag="238" data-active="1">四级</a>
+						<a href="#" class="" data-tag="239" data-active="1">六级</a>
+						<a href="#" class="" data-tag="240" data-active="1">专四</a>
+						<a href="#" class="" data-tag="241" data-active="1">专八</a>
+						<a href="#" class="" data-tag="242" data-active="1">考研</a>
+						<a href="#" class="" data-tag="243" data-active="1">新概念</a>
+						<a href="#" class="" data-tag="244" data-active="1">SAT</a>
+						<a href="#" class="" data-tag="245" data-active="1">托福</a>
+						<a href="#" class="" data-tag="246" data-active="1">雅思</a>
+						<a href="#" class="" data-tag="247" data-active="1">GRE</a>
+						<a href="#" class="" data-tag="248" data-active="1">GMAT</a>
+						<a href="#" class="" data-tag="249" data-active="1">托业</a>
+						<a href="#" class="" data-tag="250" data-active="1">BEC</a>
+						<a href="#" class="" data-tag="251" data-active="1">词典</a>
+						<a href="#" class="" data-tag="252" data-active="1">词频</a>
+						<a href="#" class="" data-tag="253" data-active="1">其他</a>
+					</dd>
+				</dl>
+				<dl class="clearFix">
+					<dt id="error" style="display: none;">
+						<p class="error"></p>
+					</dt>
+				</dl>
+				<div class="news-code clearFix">
+					<span>
+						<b>验证码</b>
+						<input type="text" id="captcha" />
+<!--						<div contenteditable="true" id="captcha"></div>-->
+						<img id="captchaImg" src="https://www.maimemo.com/service/captcha/image2/?sid=592647ecae993bd7e8177abc097fbf67" onclick="this.src='https://www.maimemo.com/service/captcha/image2/?sid='+Math.random();return false;" />
+						<a href="#" id="refresh">刷新</a>
+					</span>
+					<span>
+						<a class="active" href="#" id="update">保存</a>
+						<a class="warning" href="https://www.maimemo.com/notepad/delete/325025" id="delete">删除</a>
+						<a href="https://www.maimemo.com/notepad/show" id="return">返回</a>
+					</span>
+					<input type="hidden" id="id" value="325025" />
+					<input type="hidden" id="maxCount" value="20" />
+					<input type="hidden" id="scene" value="" />
+				</div>
+				</div>
+			</div>
+		</div>
+		<div class="footer-border">
+			<div class="footer">
+				<span class="left">
+                <p style="margin-right: 10px;"><a href="http://beian.miit.gov.cn/" target="_blank">蜀ICP备14006345号</a></p>
+                <p style="margin-right: 10px;"><a href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=44180202000575" target="_blank">粤公网安备44180202000575号</a></p>
+                <p style="margin-right: 10px;"><a href="http://app.eduyun.cn/mapp/mappAppDetail?id=45c0753f35d311ea9725fa163e4fea36" target="_blank">教APP备4400444号</a></p>
+			</span>
+				<span class="right">
+				<p><a href="https://www.maimemo.com/join">加入墨墨</a></p>
+				<p><a href="mailto:support@maimemo.com">联系我们</a></p>
+			</span>
+			</div>
+		</div>
+</body>
+<script type="text/javascript" src="https://www.maimemo.com/res/library/jquery/plugin/bootstrap/jquery.bootstrap.js">
+</script>
+<script type="text/javascript">
+	var SITEURL   = "https://www.maimemo.com/";
+		var APIROOT   = "https://api.maimemo.com/api/";
+		var $document = $(document);
+		var $window   = $(window);
+		var $footer   = $('.footer-border');
+		var tweekFt   = function() {
+			$footer.css('position', $window.height() >= $document.height() ? 'fixed' : 'relative');
+		};
+		$window.on('resize', tweekFt);
+		tweekFt();
+</script>
+<script charset="UTF-8" type="text/javascript"
+	src="https://www.maimemo.com/res/style/site/default/js/public.min.js?v=85321479">
+	&#160;
+</script>
+<script charset="UTF-8" type="text/javascript"
+	src="https://www.maimemo.com/res/style/site/default/js/memo.min.js?v=85321479">
+	&#160;
+</script>
+<script charset="UTF-8" type="text/javascript"
+	src="https://www.maimemo.com/res/style/site/default/js/notepad.min.js?v=85321479">
+	&#160;
+</script>
+
+</html>

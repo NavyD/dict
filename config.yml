@@ -1,11 +1,13 @@
 youdao:
     username: a
     password: a
+    captcha_path: youdao-captcha.png
 
 maimemo:
     username: &maimemo_username dhjnavyd@gmail.com
     password: &maimemo_password mm.123456
     cookie_path: maimemo-cookies.json
+    captcha_path: maimemo-captcha.png
     requests:
         login: 
             url: https://www.maimemo.com/auth/login
@@ -31,16 +33,14 @@ maimemo:
                 password: *maimemo_password
         notepad-search: 
             # plus cookie userToken: ?token=...
-            url: https://www.maimemo.com/v3/api/notepad/search
+            url: https://www.maimemo.com/v3/api/notepad/search?token=
             method: POST
             headers: 
                 accept: application/json, text/javascript, */*; q=0.01
                 accept-encoding: gzip, deflate, br
                 accept-language: zh-CN,zh;q=0.9
                 cache-control: no-cache
-                content-length: 81
                 content-type: application/json; charset=UTF-8
-                # cookie: PHPSESSID=672ce320180faa6494fbf19eca718639; Hm_lvt_8d4c70ef9b50f1ed364481083d6a8636=1602900865; userToken=8f22ef38c3ae457b1af151873062074ccda40df0d1b2ef7a48756622acc551c1; Hm_lpvt_8d4c70ef9b50f1ed364481083d6a8636=1602902068
                 origin: https://www.maimemo.com
                 pragma: no-cache
                 referer: https://www.maimemo.com/notepad/show
@@ -50,8 +50,8 @@ maimemo:
                 user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
                 x-requested-with: XMLHttpRequest
         notepad-detail:
-            # {}表示notepad id
-            url: https://www.maimemo.com/notepad/detail/{}?scene=
+            # plus detail/{notepad id}
+            url: https://www.maimemo.com/notepad/detail/
             method: GET
             headers: 
                 accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
@@ -67,3 +67,39 @@ maimemo:
                 sec-fetch-user: ?1
                 upgrade-insecure-requests: 1
                 user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
+        service-captcha:
+            # qeury param: ?sid={} is math.rand()
+            # <img id="captchaImg" src="https://www.maimemo.com/service/captcha/image2/?sid=592647ecae993bd7e8177abc097fbf67" onclick="this.src='https://www.maimemo.com/service/captcha/image2/?sid='+Math.random();
+            url: https://www.maimemo.com/service/captcha/image2?sid=
+            method: GET
+            headers:
+                accept: image/avif,image/webp,image/apng,image/*,*/*;q=0.8
+                accept-encoding: gzip, deflate, br
+                accept-language: zh-CN,zh;q=0.9
+                cache-control: no-cache
+                pragma: no-cache
+                referer: https://www.maimemo.com/notepad/detail/695835?scene=
+                sec-fetch-dest: image
+                sec-fetch-mode: no-cors
+                sec-fetch-site: same-origin
+                user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
+        notepad-save:
+            url: https://www.maimemo.com/notepad/save
+            method: POST
+            headers:
+                accept: application/json, text/javascript, */*; q=0.01
+                accept-encoding: gzip, deflate, br
+                accept-language: zh-CN,zh;q=0.9
+                cache-control: no-cache
+                content-length: 100
+                content-type: application/x-www-form-urlencoded; charset=UTF-8
+                cookie: PHPSESSID=9ecf90aad7bc368ee38ad866b6b52e07; Hm_lvt_8d4c70ef9b50f1ed364481083d6a8636=1602938672; userToken=8bc0710b2b3855b9b833e39ef32ec1a83f3c178ea00268138a0c407b04253439; Hm_lpvt_8d4c70ef9b50f1ed364481083d6a8636=1602954393
+                origin: https://www.maimemo.com
+                pragma: no-cache
+                referer: https://www.maimemo.com/notepad/detail/695835?scene=
+                sec-fetch-dest: empty
+                sec-fetch-mode: cors
+                sec-fetch-site: same-origin
+                user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
+                x-requested-with: XMLHttpRequest
+            

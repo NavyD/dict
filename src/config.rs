@@ -33,6 +33,7 @@ impl RequestConfig {
 pub struct Config {
     username: String,
     password: String,
+    captcha_path: String,
     cookie_path: Option<String>,
     requests: Option<HashMap<String, RequestConfig>>,
 }
@@ -52,6 +53,10 @@ impl Config {
 
     pub fn get_requests(&self) -> Option<&HashMap<String, RequestConfig>> {
         self.requests.as_ref()
+    }
+
+    pub fn get_captcha_path(&self) -> &str {
+        &self.captcha_path
     }
 }
 
@@ -185,6 +190,13 @@ pub fn fill_form(req_builder: RequestBuilder, form: &HashMap<String, String>) ->
     req_builder.form(&form)
 }
 
+pub fn form_map_to_body(form: &HashMap<String, String>) -> Vec<(&str, &str)> {
+    form
+        .iter()
+        .map(|(key, val)| (key.as_str(), val.as_str()))
+        .collect::<Vec<_>>()
+}
+
 /// 从response中获取`set-cookie`s更新到cookie_store中。如果出现cookie无法解析或store无法插入则不会出错，可见debug log
 pub fn update_set_cookies(
     cookie_store: &mut cookie_store::CookieStore,
@@ -195,8 +207,7 @@ pub fn update_set_cookies(
     let set_cookies = resp
         .headers()
         .iter()
-        .filter(|(name, _)| 
-        *name == reqwest::header::SET_COOKIE)
+        .filter(|(name, _)| *name == reqwest::header::SET_COOKIE)
         .map(|(_, v)| v.to_str().unwrap())
         .collect::<Vec<_>>();
     for cookie_str in set_cookies {
@@ -211,18 +222,93 @@ pub fn update_set_cookies(
     }
 }
 
-pub fn fill_request_cookies(cookie_store: &cookie_store::CookieStore, mut req_builder: RequestBuilder, req_url: &str) -> RequestBuilder {
+pub fn fill_request_cookies(
+    cookie_store: &cookie_store::CookieStore,
+    mut req_builder: RequestBuilder,
+    req_url: &str,
+) -> RequestBuilder {
     let url = &reqwest::Url::parse(req_url).unwrap();
+    let delimiter = "; ";
+    let mut vals = "".to_string();
     for c in cookie_store.get_request_cookies(url) {
-        let s = c.name().to_string() + "=" + c.value();
-        match HeaderValue::from_str(&s) {
-            Ok(v) => {
-                req_builder = req_builder.header(reqwest::header::COOKIE, v);
-            },
-            Err(e) => {
-                debug!("unable to request cookie value: {}={}. error: {:?}", c.name(), c.value(), e);
-            }
+        vals.push_str(c.name());
+        vals.push('=');
+        vals.push_str(c.value());
+        vals.push_str(delimiter);
+    }
+    let start = vals.len() - delimiter.len();
+    vals.drain(start..vals.len());
+    match HeaderValue::from_str(&vals) {
+        Ok(v) => {
+            debug!("fill cookies [{}] in req: {}", v.to_str().unwrap(), url);
+            req_builder = req_builder.header(reqwest::header::COOKIE, v);
+        }
+        Err(e) => {
+            debug!("unable to request cookie: {}. error: {:?}", vals, e);
         }
     }
     req_builder
+}
+
+
+pub async fn send_request_nobody<T: Serialize + ?Sized>(
+    client: &Client,
+    cookie_store: &cookie_store::CookieStore,
+    req_config: &RequestConfig,
+    url: &str,
+) -> Result<reqwest::Response, String> {
+    send_request(client, cookie_store, req_config, url, None::<&str>).await
+}
+
+pub async fn send_request<T: Serialize + ?Sized>(
+    client: &Client,
+    cookie_store: &cookie_store::CookieStore,
+    req_config: &RequestConfig,
+    url: &str,
+    body: Option<&T>,
+) -> Result<reqwest::Response, String> {
+    let mut req_builder = request_builder(client, req_config.get_method(), url)?;
+
+    req_builder = fill_headers(
+        req_builder,
+        req_config
+            .get_headers()
+            .ok_or(format!("not found any headers in req url: {}", url))?,
+    )?;
+    req_builder = fill_request_cookies(cookie_store, req_builder, url);
+    // parse body with content-type
+    if let Some(body) = body {
+        let content_type = req_config.get_headers().and_then(|headers| {
+            headers
+                .iter()
+                .find(|(k, v)| k.eq_ignore_ascii_case("content-type"))
+                .map(|(_, v)| v)
+        });
+        debug!("The body of the {:?} being parsed", content_type);
+        let is_type = |header_val: &str| -> bool {
+            content_type.map_or(false, |content| content.contains(header_val))
+        };
+        req_builder = if is_type("application/x-www-form-urlencoded") {
+            serde_urlencoded::to_string(body)
+                .map(|body| {
+                    debug!("Url encoded the body: {}", body);
+                    req_builder.body(body)
+                })
+                .map_err(|e| format!("{:?}", e))?
+        } else if is_type("application/json") {
+            // req_builder.body(body.into())
+            serde_json::to_vec(body)
+                .map(|body| {
+                    debug!("jsoned body: {:?}", body);
+                    req_builder.body(body)
+                })
+                .map_err(|e| format!("{:?}", e))?
+        } else {
+            todo!("unsupported content type: {:?}", content_type)
+        }
+    }
+    debug!("request: {:?}", req_builder);
+    let resp = req_builder.send().await.map_err(|e| format!("{:?}", e))?;
+    debug!("response: {:?}", resp);
+    Ok(resp)
 }
