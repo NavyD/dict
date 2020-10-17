@@ -1,7 +1,7 @@
 // https://users.rust-lang.org/t/cargo-build-shows-unresolved-import/45445/7
 use std::path::{Path, PathBuf};
 
-use youdao_dict_export::{*, maimemo_client::*, word_store::*, youdao_client::*};
+use youdao_dict_export::{*, maimemo_client::*, word_store::*, youdao_client::*, config::*};
 
 use chrono::{TimeZone, Utc};
 use structopt::StructOpt;
@@ -41,11 +41,11 @@ struct Opt {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
+async fn main() -> Result<(), String> {
     // args
     // let opt: Opt = Opt::from_args();
     // init_log(opt.verbose);
-    // init_log(true);
+    init_log(true);
 
 
     // let mut ws = get_word_store(&opt).await?;
@@ -55,12 +55,12 @@ async fn main() -> Result<(), reqwest::Error> {
     // filter_offset(words, opt.offset);
     // print_with_mode(words, &opt.print_mode);
 
-    // let config_path = "config.yml";
-    // let config_maimemo_name = "maimemo";
-    // let config_youdao_name = "youdao";
-    // let mut maimemo_client = MaimemoClient::new(load_config(config_path, config_maimemo_name).expect("err"));
-    // let notepads = maimemo_client.fetch_notepads().await?;
-    // println!("{:?}", notepads);
+    let config_path = "config.yml";
+    let config_maimemo_name = "maimemo";
+    let config_youdao_name = "youdao";
+    let maimemo_config = load_config(config_path, config_maimemo_name).map_err(|e| format!("{:?}", e))?;
+    let mut client = MaimemoClient::new(maimemo_config);
+    client.login().await?;
     Ok(())
 }
 
