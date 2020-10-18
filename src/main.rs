@@ -43,31 +43,16 @@ struct Opt {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     // args
-    // let opt: Opt = Opt::from_args();
-    // init_log(opt.verbose);
-    init_log(true);
+    let opt: Opt = Opt::from_args();
+    init_log(opt.verbose);
 
+    let mut ws = get_word_store(&opt).await.map_err(|e| format!("{:?}", e))?;
+    let words = ws.get_mut_words();
 
-    // let mut ws = get_word_store(&opt).await?;
-    // let words = ws.get_mut_words();
-
-    // filter_date(words, opt.start_date.as_deref(), opt.end_date.as_deref());
-    // filter_offset(words, opt.offset);
-    // print_with_mode(words, &opt.print_mode);
-
-    let config_path = "config.yml";
-    let config_maimemo_name = "maimemo";
-    let config_youdao_name = "youdao";
-    let maimemo_config = load_config(config_path, config_maimemo_name).map_err(|e| format!("{:?}", e))?;
-    let mut client = MaimemoClient::new(maimemo_config);
-    // client.get_notepads().await?;
-    let contents = client.refresh_captcha().await?;
-    println!("path: {:?}", contents);
+    filter_date(words, opt.start_date.as_deref(), opt.end_date.as_deref());
+    filter_offset(words, opt.offset);
+    print_with_mode(words, &opt.print_mode);
     Ok(())
-}
-
-fn write_captcha() {
-
 }
 
 fn init_log(verbose: bool) {

@@ -1,11 +1,6 @@
-youdao:
-    username: a
-    password: a
-    captcha_path: youdao-captcha.png
-
 maimemo:
-    username: &maimemo_username dhjnavyd@gmail.com
-    password: &maimemo_password mm.123456
+    username: dhjnavyd@gmail.com
+    password: mm.123456
     cookie_path: maimemo-cookies.json
     captcha_path: maimemo-captcha.png
     requests:
@@ -28,9 +23,6 @@ maimemo:
                 sec-fetch-site: same-origin
                 user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
                 x-requested-with: XMLHttpRequest
-            form:
-                email: *maimemo_username
-                password: *maimemo_password
         notepad-search: 
             # plus cookie userToken: ?token=...
             url: https://www.maimemo.com/v3/api/notepad/search?token=
@@ -89,11 +81,9 @@ maimemo:
             headers:
                 accept: application/json, text/javascript, */*; q=0.01
                 accept-encoding: gzip, deflate, br
-                accept-language: zh-CN,zh;q=0.9
+                accept-language: zh-CN,zh;q=0.9,en;q=0.8
                 cache-control: no-cache
-                content-length: 100
                 content-type: application/x-www-form-urlencoded; charset=UTF-8
-                cookie: PHPSESSID=9ecf90aad7bc368ee38ad866b6b52e07; Hm_lvt_8d4c70ef9b50f1ed364481083d6a8636=1602938672; userToken=8bc0710b2b3855b9b833e39ef32ec1a83f3c178ea00268138a0c407b04253439; Hm_lpvt_8d4c70ef9b50f1ed364481083d6a8636=1602954393
                 origin: https://www.maimemo.com
                 pragma: no-cache
                 referer: https://www.maimemo.com/notepad/detail/695835?scene=
