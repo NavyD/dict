@@ -5,7 +5,8 @@ use std::io;
 /// 一个对应.yml文件的配置struct
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    maimemo: Maimemo,
+    maimemo: AppConfig,
+    youdao: AppConfig,
 }
 
 impl Config {
@@ -20,21 +21,32 @@ impl Config {
         })
     }
 
-    pub fn get_maimemo(&self) -> &Maimemo {
+    pub fn get_maimemo(&self) -> &AppConfig {
         &self.maimemo
+    }
+
+    pub fn get_youdao(&self) -> &AppConfig {
+        &self.youdao
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Maimemo {
+pub struct Youdao {
     username: String,
     password: String,
-    captcha_path: String,
     cookie_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AppConfig {
+    username: String,
+    password: String,
+    cookie_path: Option<String>,
+    dictionary_path: String,
     requests: Option<HashMap<String, RequestConfig>>,
 }
 
-impl Maimemo {
+impl AppConfig {
     pub fn get_username(&self) -> &str {
         &self.username
     }
@@ -47,12 +59,12 @@ impl Maimemo {
         self.cookie_path.as_ref().map(|s| s.as_str())
     }
 
-    pub fn get_requests(&self) -> Option<&HashMap<String, RequestConfig>> {
-        self.requests.as_ref()
+    pub fn get_dictionary_path(&self) -> &str {
+        &self.dictionary_path
     }
 
-    pub fn get_captcha_path(&self) -> &str {
-        &self.captcha_path
+    pub fn get_requests(&self) -> Option<&HashMap<String, RequestConfig>> {
+        self.requests.as_ref()
     }
 }
 
@@ -88,7 +100,7 @@ mod tests {
         let maimemo = config.get_maimemo();
         assert_eq!(maimemo.get_username(), "dhjnavyd@gmail.com");
         assert!(maimemo.get_password().len() > 0);
-        assert_eq!("maimemo-captcha.png", maimemo.get_captcha_path());
+        assert_eq!("maimemo-dictionary.json", maimemo.get_dictionary_path());
         assert_eq!(Some("maimemo-cookies.json"), maimemo.get_cookie_path());
         if let Some(requests ) = maimemo.get_requests() {
             assert_eq!(requests.len(), 5);

@@ -3,6 +3,8 @@ use crate::youdao_client::WordItem;
 use std::io;
 use std::fs;
 use std::path::Path;
+use tokio::{io as aio, fs as afs};
+
 
 /// 一个word store。提供单词本的缓存与持久化
 pub struct WordStore {
