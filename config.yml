@@ -30,7 +30,6 @@ youdao:
                 Sec-Fetch-Site: cross-site
                 Sec-Fetch-Mode: navigate
                 Sec-Fetch-User: ?1
-                Content-Length: 225
                 Sec-Fetch-Dest: document
                 Referer: http://account.youdao.com/
                 Accept-Encoding: gzip, deflate, br
@@ -40,7 +39,7 @@ youdao:
             method: GET
             headers:
                 Host: dict.youdao.com
-                Connection: keep-alive
+                # Connection: keep-alive
                 Pragma: no-cache
                 Cache-Control: no-cache
                 Accept: application/json, text/plain, */*

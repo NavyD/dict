@@ -1,3 +1,6 @@
+pub mod maimemo_client;
+pub mod youdao_client;
+
 use crate::config::*;
 use chrono::Local;
 use cookie_store::CookieStore;
@@ -9,22 +12,53 @@ use std::fmt;
 use std::{
     fs::{self, OpenOptions},
     io::{self},
+    future::Future,
 };
 
+pub trait LoggedClient {
+    fn has_logged(&self) -> bool;
+
+    fn login(&mut self) -> dyn Future<Output=()>;
+}
+
+pub trait WordClient {
+    fn get_words<T>(&self) -> dyn Future<Output=T>;
+}
+
+pub fn save_cookie_store(path: &str, cookie_store: &CookieStore) -> Result<(), String> {
+    info!("Saving cookies to path {}", path);
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("{:?}", e))?;
+    cookie_store
+        .save_json(&mut file)
+        .map_err(|e| format!("{:?}", e))?;
+    debug!("saved cookie store");
+    Ok(())
+}
 
 /// 从path中创建一个cs, 如果path is none,则使用内存上的cs
 pub fn build_cookie_store(cookie_path: Option<&str>) -> Result<CookieStore, String> {
-    let cookie_store = if let Some(path) = cookie_path {
-        let path = fs::canonicalize(path).map_err(|e| format!("{:?}", e))?;
-        let path_str = path.to_str().unwrap().to_string();
-        debug!("loading cookie store from path: {}", path_str);
-        let file = fs::File::open(path).map_err(|e| format!("{:?}. path: {}", e, path_str))?;
+    let cookie_store = if let Some(cookie_path) = cookie_path {
+        // let path = fs::canonicalize(path).map_err(|e| format!("path {} error: {:?}", path, e))?;
+        // let path_str = path.to_str().unwrap().to_string();
+        debug!("opening cookie store from path: {}", cookie_path);
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(cookie_path)
+            .map_err(|e| format!("path {} error: {:?}", cookie_path, e))?;
         CookieStore::load_json(io::BufReader::new(file)).map_err(|e| format!("{:?}", e))?
     } else {
         debug!("not found cookie store path. cookie store used in memory");
         CookieStore::default()
     };
-    cookie_store.iter_unexpired().for_each(|c| debug!("loaded unexpirted cookie: [{}={}]", c.name(), c.value()));
+    cookie_store
+        .iter_unexpired()
+        .for_each(|c| debug!("loaded unexpirted cookie: [{}={}]", c.name(), c.value()));
     Ok(cookie_store)
 }
 
@@ -35,7 +69,6 @@ pub fn build_general_client() -> Result<Client, String> {
         .build()
         .map_err(|e| format!("{:?}", e))
 }
-
 
 /// 通过content-type解析body到request builder中
 fn fill_body<T: Serialize + ?Sized>(
@@ -48,7 +81,7 @@ fn fill_body<T: Serialize + ?Sized>(
     if content_type.contains("application/x-www-form-urlencoded") {
         serde_urlencoded::to_string(body)
             .map(|body| {
-                debug!("Url encoded the body: {}", body);
+                trace!("Url encoded the body: {}", body);
                 req_builder.body(body)
             })
             .map_err(|e| format!("{:?}", e))
@@ -56,7 +89,7 @@ fn fill_body<T: Serialize + ?Sized>(
         // req_builder.body(body.into())
         serde_json::to_vec(body)
             .map(|body| {
-                debug!("jsoned body: {:?}", body);
+                trace!("jsoned body: {:?}", body);
                 req_builder.body(body)
             })
             .map_err(|e| format!("{:?}", e))
@@ -76,13 +109,17 @@ pub fn fill_request_cookies(
     for c in cookie_store.get_request_cookies(url) {
         cookies = cookies + c.name() + "=" + c.value() + delimiter;
     }
+    if cookies.is_empty() {
+        debug!("No cookies found for url: {}", url);
+        return req_builder;
+    }
     let start = cookies.len() - delimiter.len();
     cookies.drain(start..cookies.len());
     debug!("found reqeust cookie str: {}", cookies);
     match HeaderValue::from_str(&cookies) {
         Ok(v) => req_builder.header(reqwest::header::COOKIE, v),
         Err(e) => {
-            debug!("unable to request cookie: {}. error: {:?}", cookies, e);
+            warn!("skiped unable to request cookie: {}. error: {:?}", cookies, e);
             req_builder
         }
     }
@@ -119,8 +156,18 @@ pub fn fill_headers(
     let mut req_headers = HeaderMap::new();
     for (key, val) in headers {
         trace!("filling request header: {}={}", key, val);
-        let name = HeaderName::from_lowercase(key.as_bytes()).map_err(|e| format!("{:?}", e))?;
-        let val = HeaderValue::from_str(val).map_err(|e| format!("{:?}", e))?;
+        let name = if let Ok(name) = HeaderName::from_lowercase(key.to_lowercase().as_bytes()) {
+            name
+        } else {
+            warn!("skip invalid headername: {}", key);
+            continue;
+        };
+        let val = if let Ok(name) = HeaderValue::from_str(val) {
+            name
+        } else {
+            warn!("skip invalid header value: {}", val);
+            continue;
+        };
         if let Some(old) = req_headers.insert(name, val) {
             debug!("replace old header: {}={}", key, old.to_str().unwrap());
         }
@@ -144,7 +191,15 @@ pub async fn send_request_nobody<U: FnOnce(&str) -> String>(
     req_name: &str,
     url_handler: U,
 ) -> Result<reqwest::Response, String> {
-    send_request(config, client, cookie_store, req_name, url_handler, None::<&str>).await
+    send_request(
+        config,
+        client,
+        cookie_store,
+        req_name,
+        url_handler,
+        None::<&str>,
+    )
+    .await
 }
 
 /// 获取req_name对应的config发送一个request，并返回200成功的resp。
@@ -176,8 +231,8 @@ pub async fn send_request<T: Serialize + ?Sized, U: FnOnce(&str) -> String>(
     let url = url_handler(url);
     debug!("new url: [{}] processed by url_handler", url);
 
-    let method = Method::from_bytes(req_config.get_method().as_bytes())
-        .map_err(|e| format!("{:?}", e))?;
+    let method =
+        Method::from_bytes(req_config.get_method().as_bytes()).map_err(|e| format!("{:?}", e))?;
     debug!("found the configured method: {}", method);
 
     let mut req_builder = client.request(method, &url);
@@ -201,21 +256,20 @@ pub async fn send_request<T: Serialize + ?Sized, U: FnOnce(&str) -> String>(
                     .map(|(_, v)| v)
             })
             .ok_or_else(|| {
-                debug!(
+                format!(
                     "not found content-type in request headers: {:?}",
                     req_config.get_headers()
-                );
-                format!("not found content-type in request")
+                )
             })?;
         req_builder = fill_body(req_builder, content_type, body)?;
         // req_builder = req_builder.form(body);
     }
 
-    debug!("sending request: {:?}", req_builder);
+    trace!("sending request: {:?}", req_builder);
     let resp = req_builder.send().await.map_err(|e| format!("{:?}", e))?;
-    debug!("response received: {:?}", resp);
+    trace!("response received: {:?}", resp);
     let status = resp.status();
-    if status.as_u16() == 200 || status.as_u16() == 302{
+    if status.as_u16() == 200 || status.as_u16() == 302 {
         Ok(resp)
     } else {
         let msg = format!("Response code error: {}", status);

@@ -1,23 +1,28 @@
 // https://users.rust-lang.org/t/cargo-build-shows-unresolved-import/45445/7
 use std::path::{Path, PathBuf};
 
-use youdao_dict_export::{config, maimemo_client::*, word_store::*, youdao_client::*, *};
+use youdao_dict_export::{
+    client::{
+        maimemo_client::{MaimemoClient, Notepad},
+        youdao_client::{WordItem, YoudaoClient},
+    },
+    config::*,
+};
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
 
-use std::io::{self, Read, Write};
-use std::process::*;
+use std::io::{self, BufReader};
 use std::str;
-
+use tokio::io::AsyncBufReadExt;
+use tokio::stream::StreamExt;
 use tokio::{
     fs::{self as afs},
-    io::{self as aio, AsyncReadExt},
+    io::{self as aio},
+    prelude::*,
 };
-use viuer::{print, Config};
-use youdao_dict_export::{config::*, maimemo_client::*, word_store::*, youdao_client::*, *};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "basic")]
@@ -90,6 +95,9 @@ enum SubCommand {
         #[structopt(short, long)]
         list: bool,
 
+        #[structopt(short, long)]
+        refresh: bool,
+
         #[structopt(long)]
         notepad_id: Option<String>,
 
@@ -98,158 +106,264 @@ enum SubCommand {
         upload: bool,
 
         /// 在upload时自动插入时间戳
-        #[structopt(short)]
+        #[structopt(short, required_if("upload", "true"))]
         timestamp: bool,
+
+        #[structopt(short)]
+        appending: bool,
     },
 }
 
-struct MaimemoApp {
+pub struct MaimemoApp {
     notepads: Vec<Notepad>,
+    config: AppConfig,
+    is_updated: bool,
+}
+
+impl std::ops::Drop for MaimemoApp {
+    /// 当self被更新后保存notepads数据
+    fn drop(&mut self) {
+        if !self.is_updated {
+            return;
+        }
+        if let Err(e) = save_json(&self.notepads, self.config.get_dictionary_path()) {
+            error!("notepads persistence failed. {}", e);
+        } else {
+            info!("notepads persistence successful");
+        }
+    }
 }
 
 impl MaimemoApp {
-    pub async fn from_web<'a>(maimemo: &mut MaimemoClient<'a>) -> Result<Self, String> {
-        if !maimemo.has_logged() {
-            debug!("Signing in");
-            maimemo.login().await?;
-        }
-        let mut notepads = maimemo.get_notepad_list().await?;
-        debug!("got notepad list: {:?}", notepads);
-        for notepad in &mut notepads {
-            let contents = maimemo
-                .get_notepad_contents(notepad.get_notepad_id())
-                .await?;
-            debug!(
-                "Got Notepad contents: {}, notepad id: {}",
-                contents,
-                notepad.get_notepad_id()
-            );
-            notepad.set_contents(Some(contents));
-        }
-        Ok(MaimemoApp { notepads })
+    /// 从web maimemo上
+    pub async fn from_web<'a>(config: AppConfig) -> Result<Self, String> {
+        let notepads = {
+            let mut client = MaimemoClient::new(&config)?;
+            if !client.has_logged() {
+                debug!("Signing in");
+                client.login().await?;
+            }
+            let mut notepads = client.get_notepad_list().await?;
+            debug!("got notepad list: {:?}", notepads);
+            for notepad in &mut notepads {
+                let contents = client
+                    .get_notepad_contents(notepad.get_notepad_id())
+                    .await?;
+                notepad.set_contents(Some(contents));
+            }
+            notepads
+        };
+        Ok(MaimemoApp {
+            notepads,
+            config,
+            is_updated: true,
+        })
     }
 
-    pub async fn from_file(path: &str) -> Result<Self, String> {
-        load_from_json_file(path)
+    pub async fn from_file(config: AppConfig) -> Result<Self, String> {
+        load_from_json_file(config.get_dictionary_path())
             .await
-            .map(|notepads| Self { notepads })
+            .map(|notepads| Self {
+                notepads,
+                config,
+                is_updated: false,
+            })
     }
 
-    pub async fn upload_notepad<'a>(
-        &self,
-        maimemo_client: &MaimemoClient<'a>,
-        id: &str,
+    pub async fn upload_notepad(
+        &mut self,
+        notepad_id: &str,
+        is_appending: bool,
+        timestamp: bool,
     ) -> Result<(), String> {
-        let captcha_contents = maimemo_client.refresh_captcha().await?;
-        // Display captcha on the terminal
-        let img = image::load_from_memory(&captcha_contents).map_err(|e| format!("{:?}", e))?;
-        debug!("Exporting image content");
-        print(&img, &Config::default()).expect("Image printing failed.");
-        debug!("Waiting for input captcha");
-        print!("please enter captcha: ");
-        // read stdin
-        let mut buf = Vec::new();
-        let mut stdin = aio::stdin();
-        stdin
-            .read_to_end(&mut buf)
-            .await
-            .map_err(|e| format!("{:?}", e))?;
-        let captcha_input = std::str::from_utf8(&buf).map_err(|e| format!("{:?}", e))?;
-        debug!("Read to input captcha: {}", captcha_input);
-        // save notepad
-        let notepad = self
+        let client = MaimemoClient::new(&self.config)?;
+        if !client.has_logged() {
+            return Err(format!("Not logged in"));
+        }
+        let new_notepad = self
+            .get_uploaded_notepad(notepad_id, is_appending, timestamp)
+            .await?;
+        while let Err(e) = self.upload(&client, new_notepad.clone()).await {
+            print!("upload error: {}. \nDo you want to try again [y]:", e);
+            println!();
+            let line = aio::BufReader::new(aio::stdin())
+                .lines()
+                .next_line()
+                .await
+                .map_err(|e| format!("{:?}", e))?
+                .ok_or("line is none")?;
+            if line != "y" {
+                return Err(format!("User confirm exit: {}", line));
+            }
+        }
+        if self
             .notepads
-            .iter()
-            .find(|notepad| notepad.get_notepad_id() == id)
-            .ok_or(format!("not found notepad with id: {}", id))?;
-        debug!("saving notepad: {}", notepad);
-        maimemo_client.save_notepad(notepad, captcha_input).await?;
-        debug!("save notepad successful");
+            .iter_mut()
+            .find(|n| n.get_notepad_id() == notepad_id)
+            .map(|n| *n = new_notepad)
+            .is_none()
+        {
+            warn!("Failed to update local Notepad. please use -r refresh local data");
+        }
+        self.is_updated = true;
+        debug!("upload notepad successful");
         Ok(())
     }
 
-    pub fn list(&self, id: Option<&str>) {
-        if let Some(id) = id {
-            self.notepads
-                .iter()
-                .find(|notepad| notepad.get_notepad_id() == id)
-                .map(|notepad| println!("{}", notepad));
+    async fn upload<'a>(&self, client: &MaimemoClient<'a>, notepad: Notepad) -> Result<(), String> {
+        let captcha = self.read_captcha_from_stdin(&client).await?;
+        // save notepad
+        client.save_notepad(notepad, captcha).await
+    }
+
+    async fn read_captcha_from_stdin<'a>(
+        &self,
+        client: &MaimemoClient<'a>,
+    ) -> Result<String, String> {
+        let captcha_contents = client.refresh_captcha().await?;
+        // Display captcha on the terminal
+        let img = image::load_from_memory(&captcha_contents).map_err(|e| format!("{:?}", e))?;
+        debug!("Exporting image content");
+        viuer::print(&img, &viuer::Config::default()).expect("Image printing failed.");
+        debug!("Waiting for input captcha");
+        print!("please enter captcha: ");
+        // read captcha on stdin
+        let mut lines = aio::BufReader::new(aio::stdin()).lines();
+        if let Some(line) = lines.next_line().await.map_err(|e| format!("{:?}", e))? {
+            debug!("read line: {}", line);
+            Ok(line)
         } else {
-            self.notepads
-                .iter()
-                .for_each(|notepad| println!("{}", notepad));
+            error!("read line error");
+            Err("read line error".to_string())
         }
     }
-}
 
-/// 从json文件中加载
-async fn load_from_json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
-    let path = afs::canonicalize(path)
-        .await
-        .map_err(|e| format!("{:?}", e))?;
-    debug!("Loading json from path: {}", path.to_str().unwrap());
-    let file = afs::File::open(path)
-        .await
-        .map_err(|e| format!("{:?}", e))?
-        .try_into_std()
-        .unwrap();
-    serde_json::from_reader(file).map_err(|e| format!("{:?}", e))
+    async fn get_uploaded_notepad(
+        &self,
+        notepad_id: &str,
+        is_appending: bool,
+        timestamp: bool,
+    ) -> Result<Notepad, String> {
+        let mut notepad = self
+            .notepads
+            .iter()
+            .find(|n| n.get_notepad_id() == notepad_id)
+            .ok_or(format!("not found notepad_id: {}", notepad_id))?
+            .clone();
+        let contents = notepad.get_contents_mut().unwrap();
+        if !is_appending {
+            contents.clear();
+        }
+        if timestamp {
+            let timestr = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            contents.push_str(&format!("\n\n# {} Auto insert\n", timestr));
+        }
+        debug!("Reading content from Stdin");
+        Self::read_contents_from_stdin(contents).await?;
+        Ok(notepad)
+    }
+
+    async fn read_contents_from_stdin(contents: &mut String) -> Result<(), String> {
+        let mut lines = aio::BufReader::new(aio::stdin()).lines();
+        while let Some(line) = lines.next().await {
+            let line = line.map_err(|e| format!("{:?}", e))?;
+            debug!("read line: {}", line);
+            contents.push_str(&line);
+            contents.push('\n');
+        }
+        Ok(())
+    }
+
+    pub fn list(&self) -> Vec<&Notepad> {
+        self.notepads.iter().collect()
+    }
+
+    pub fn list_contents(&self, notepad_id: &str) -> Option<&str> {
+        self.notepads
+            .iter()
+            .find(|n| n.get_notepad_id() == notepad_id)
+            .as_ref()
+            .and_then(|n| n.get_contents())
+    }
 }
 
 struct YoudaoApp {
     word_items: Vec<WordItem>,
+    is_local: bool,
+    config: AppConfig,
+}
+
+impl std::ops::Drop for YoudaoApp {
+    fn drop(&mut self) {
+        if self.is_local {
+            return;
+        }
+        if let Err(e) = save_json(&self.word_items, self.config.get_dictionary_path()) {
+            error!("word items persistence failed. {}", e);
+        } else {
+            debug!("word items persistence successful");
+        }
+    }
 }
 
 impl YoudaoApp {
-    pub async fn from_file(path: &str) -> Result<Self, String> {
-        load_from_json_file(path)
-            .await
-            .map(|word_items| Self { word_items })
+    pub async fn from_file(config: AppConfig) -> Result<Self, String> {
+        let word_items = load_from_json_file(config.get_dictionary_path()).await?;
+        Ok(Self {
+            word_items,
+            is_local: true,
+            config,
+        })
     }
 
-    // pub async fn from_web()
-
-    /// 从opt中构造一个可用的WordStore。如果不存在words file则自动加载
-    ///
-    /// 如果opt.words_file不存在，则默认为`$HOME/.youdao-words.json`。
-    ///
-    /// 如果opt.refetch==true，则从youdao下载并持久化到words file中。否则从words file加载
- /*   async fn load_word_items(opt: &Opt) -> Result<WordStore, reqwest::Error> {
-        let path = opt.words_file.as_ref().map_or_else(
-            || {
-                let home_path = std::env::var("HOME")
-                    .map(|s| s + "/.youdao-words.json")
-                    .expect("not found path $HOME");
-                Path::new(&home_path).to_path_buf()
-            },
-            |file| file.to_path_buf(),
-        );
-        if opt.refetch {
-            // get words from youdao
-            let username = "dhjnavyd@163.com";
-            let password = "4ff32ab339c507639b234bf2a2919182";
-            info!("loading words from youdao client");
-            let mut youdao = YoudaoClient::new();
-            youdao.login(username, password).await?;
-            debug!(
-                "login successful. username: {}, password: {}",
-                username, password
-            );
-            // fetching
-            let words = youdao.fetch_words().await?;
-            let ws = WordStore::new(words);
-            // persist to file
-            debug!("persisting words to file: {}", path.to_str().unwrap());
-            if let Err(e) = ws.persist(path) {
-                panic!("refetch persisting error: {}", e);
+    pub async fn from_web(config: AppConfig) -> Result<Self, String> {
+        let word_items = {
+            let mut client = YoudaoClient::new(&config)?;
+            // client
+            if !client.has_logged() {
+                debug!("Signing in");
+                client.login().await?;
             }
-            Ok(ws)
-        } else {
-            info!("loading words from file: {}", path.to_str().unwrap());
-            Ok(WordStore::from_file(path).expect("word store from file error"))
-        }
-    }*/
-    pub fn list() {}
+            let word_items = client.get_words().await?;
+            word_items
+        };
+        Ok(Self {
+            word_items,
+            is_local: false,
+            config,
+        })
+    }
+
+    /// 查询单词。可以通过date和排序后前后过滤数量
+    ///
+    /// 通过时间区间`[start_date, end_date]`过虑单词并以升序排列。时间格式：`"%Y-%m-%d %H:%M:%S`
+    ///
+    /// - [Remove an element from a vector](https://stackoverflow.com/a/40310140)
+    pub fn list(
+        &self,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        offset: isize,
+    ) -> Vec<&WordItem> {
+        let start = Self::parse_date(start_date);
+        let end = Self::parse_date(end_date);
+        let mut words = self
+            .word_items
+            .iter()
+            .filter(|w| {
+                let date = Utc.timestamp_millis(w.modified_time as i64);
+                match (start, end) {
+                    (None, None) => true,
+                    (Some(start), Some(end)) => date >= start && date <= end,
+                    (Some(start), None) => date >= start,
+                    (None, Some(end)) => date <= end,
+                }
+            })
+            .collect::<Vec<_>>();
+        words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
+        Self::filter_offset(&mut words, offset);
+        words
+    }
 
     /// 取出offset个元素。如果offset<0，则从后取出offset个。如果offset==0则不会过滤任何元素
     ///
@@ -260,7 +374,7 @@ impl YoudaoApp {
     /// let offset = -2;
     /// filter_offset(&mut words, offset); // words: [2,3]
     /// ```
-    fn filter_offset<T>(words: &mut Vec<T>, offset: isize) {
+    fn filter_offset<T>(words: &mut Vec<&T>, offset: isize) {
         debug!("filter offset: {}", offset);
         if offset > 0 {
             let mut count = words.len() - offset as usize;
@@ -275,73 +389,48 @@ impl YoudaoApp {
         }
     }
 
-    /// 通过时间区间`[start_date, end_date]`过虑单词并以升序排列。如果end_date is None则以当前时间为准，包含end_date,
-    /// 如果start_date is None，则以1970-01-01开始。
-    ///
-    /// 格式：`"%Y-%m-%d %H:%M:%S`
-    ///
-    /// - [Remove an element from a vector](https://stackoverflow.com/a/40310140)
-    fn filter_date<T>(words: &mut Vec<WordItem>, start_date: Option<&str>, end_date: Option<&str>) {
-        if start_date.is_none() && end_date.is_none() {
-            return;
-        }
-        let (suffix, format) = (" 00:00:00", "%Y-%m-%d %H:%M:%S");
-        let end_date = end_date.map_or_else(
-            || Utc::now(),
-            |date| {
-                Utc.datetime_from_str(&(date.to_string() + suffix), format)
-                    .expect("parse end_date error")
-            },
-        );
-        let start_date = start_date.map_or_else(
-            || {
-                Utc.datetime_from_str("1970-01-01 00:00:00", format)
-                    .unwrap()
-            },
-            |date| {
-                Utc.datetime_from_str(&(date.to_string() + suffix), format)
-                    .expect("parse end_date error")
-            },
-        );
-        if start_date > end_date {
-            panic!("from date: {} > end date: {}", start_date, end_date);
-        }
-        info!("filter start_date: {}, end_date: {}", start_date, end_date);
-        // remove方式：
-        // 不能在foreach中删除remove 导致out of bound
-        words.retain(|w| {
-            let date = Utc.timestamp_millis(w.modified_time as i64);
-            date >= start_date && date <= end_date
-        });
-        words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
+    /// 解析时间格式
+    fn parse_date(date: Option<&str>) -> Option<DateTime<Utc>> {
+        date.and_then(|date| {
+            let (suffix, format) = (" 00:00:00", "%Y-%m-%d %H:%M:%S");
+            match Utc.datetime_from_str(&(date.to_string() + suffix), format) {
+                Ok(date) => Some(date),
+                Err(e) => {
+                    warn!("skip parse date {} error: {}", date, e);
+                    None
+                }
+            }
+        })
     }
 }
 
 use std::env;
 #[tokio::main]
-async fn main() -> Result<(), String> {
-    // let opt: Opt = Opt::from_args();
-    // init_log(opt.verbose);
-
-    // let mut ws = get_word_store(&opt).await.map_err(|e| format!("{:?}", e))?;
-    // let words = ws.get_mut_words();
-
-    // filter_date(words, opt.start_date.as_deref(), opt.end_date.as_deref());
-    // filter_offset(words, opt.offset);
-    // print_with_mode(words, &opt.print_mode);
-
+async fn main() {
     let opt: AppOpt = AppOpt::from_args();
     // debug log
     if opt.verbose {
         pretty_env_logger::formatted_builder()
             // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
-            .filter_level(log::LevelFilter::Debug)
+            .filter_module("youdao_dict_export", log::LevelFilter::Debug)
             .init();
     }
-    let home_dir = env::var("HOME").map_err(|e| format!("{:?}", e))?;
-    let config_path = opt.config_path.as_ref().unwrap_or(&home_dir);
-    let config = config::Config::from_yaml_file(config_path).map_err(|e| format!("{:?}", e))?;
-
+    let config_path = opt
+        .config_path
+        .as_ref()
+        .map(|s| s.to_owned())
+        // default $HOME/filename
+        .unwrap_or_else(|| {
+            let filename = "dict-config.yml";
+            let home = env::var("HOME").expect("not found $HOME var");
+            let path = Path::new(&home).join(filename);
+            path.to_str().unwrap().to_string()
+        });
+    let mut config = if let Ok(config) = Config::from_yaml_file(&config_path) {
+        config
+    } else {
+        panic!(format!("not found config file in path: {}", config_path))
+    };
     match opt.sub_cmd {
         Some(SubCommand::Youdao {
             list,
@@ -349,104 +438,193 @@ async fn main() -> Result<(), String> {
             end_date,
             start_date,
             offset,
-        }) => {}
-        _ => {}
+        }) => {
+            let config = config.youdao();
+            let app = if refresh {
+                match YoudaoApp::from_web(config).await {
+                    Ok(app) => {
+                        debug!("youdao dict refreh successful");
+                        app
+                    }
+                    Err(e) => {
+                        // 目录不存在。
+                        if e.contains("NotFound") {
+                            eprintln!("Youdao dict file not found, Please check that the directory exists: {}", e);
+                            return;
+                        }
+                        panic!("YoudaoApp cannot be created through web: {}", e);
+                    }
+                }
+            } else {
+                match YoudaoApp::from_file(config).await {
+                    Ok(app) => app,
+                    Err(e) => {
+                        if e.contains("NotFound") {
+                            eprintln!(
+                                "Youdao dict file not found, please use -r to refresh. {}",
+                                e
+                            );
+                            return;
+                        }
+                        panic!(format!("YoudaoApp cannot be created through file: {}", e));
+                    }
+                }
+            };
+            if list {
+                app.list(start_date.as_deref(), end_date.as_deref(), offset)
+                    .iter()
+                    .for_each(|item| println!("{}", item.word));
+            }
+        }
+        Some(SubCommand::Maimemo {
+            list,
+            notepad_id,
+            timestamp,
+            upload,
+            refresh,
+            appending,
+        }) => {
+            let config = config.maimemo();
+            let mut app = if refresh {
+                match MaimemoApp::from_web(config).await {
+                    Ok(app) => {
+                        debug!("maimemo dict refreh successful");
+                        app
+                    }
+                    Err(e) => {
+                        // 目录不存在。
+                        if e.contains("NotFound") {
+                            eprintln!("Maimemo dict file not found, Please check that the directory exists: {}", e);
+                            return;
+                        }
+                        panic!("MaimemoApp cannot be created through web: {}", e);
+                    }
+                }
+            } else {
+                match MaimemoApp::from_file(config).await {
+                    Ok(app) => app,
+                    Err(e) => {
+                        // 目录不存在。
+                        if e.contains("NotFound") {
+                            eprintln!(
+                                "Maimemo dict file not found, Please use -r to refresh. {}",
+                                e
+                            );
+                            return;
+                        }
+                        panic!("MaimemoApp cannot be created through file: {}", e);
+                    }
+                }
+            };
+            if list {
+                if let Some(notepad_id) = notepad_id {
+                    if let Some(contents) = app.list_contents(&notepad_id) {
+                        println!("{}", contents);
+                    } else {
+                        eprintln!("not found any contents with notepad_id: {}", notepad_id);
+                    }
+                } else {
+                    app.list().iter().for_each(|item| println!("{}", item));
+                }
+                return;
+            }
+
+            if upload {
+                if let Some(notepad_id) = notepad_id {
+                    match app.upload_notepad(&notepad_id, appending, timestamp).await {
+                        Err(e) => {
+                            eprintln!("upload error: {}", e);
+                        }
+                        Ok(()) => println!("upload successful"),
+                    }
+                } else {
+                    eprintln!("Please specify notepad id");
+                }
+                return;
+            }
+        }
+        cmd => panic!("unsupported command: {:?}", cmd),
     };
-
-    Ok(())
-}
-
-fn print_with_mode(words: &Vec<WordItem>, mode: &str) {
-    info!(
-        "starting print with mode: {}, word count: {}",
-        mode,
-        words.len()
-    );
-    if mode == "min" {
-        words.iter().for_each(|w| println!("{}", w.word));
-    } else {
-        panic!("unsupported mode: {}", mode);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-/*
-    #[test]
-    fn filter_date_test() {
-        let words = get_words();
-        let mut res = words.to_vec();
-        filter_date(&mut res, None, None);
-        assert_eq!(words, res);
+    /*
+        #[test]
+        fn filter_date_test() {
+            let words = get_words();
+            let mut res = words.to_vec();
+            filter_date(&mut res, None, None);
+            assert_eq!(words, res);
 
-        let mut res = words.to_vec();
-        filter_date(&mut res, Some("2019-8-01"), None);
-        assert_eq!(res.len(), 2);
-        // 过虑了最小时间
-        assert!(res
-            .iter()
-            .find(|w| w.modified_time == 1564152487000)
-            .is_none());
+            let mut res = words.to_vec();
+            filter_date(&mut res, Some("2019-8-01"), None);
+            assert_eq!(res.len(), 2);
+            // 过虑了最小时间
+            assert!(res
+                .iter()
+                .find(|w| w.modified_time == 1564152487000)
+                .is_none());
 
-        let mut res = words.to_vec();
-        filter_date(&mut res, None, Some("2019-8-01"));
-        assert_eq!(res.len(), 1);
-        // 还剩下最小时间
-        assert!(res
-            .iter()
-            .find(|w| w.modified_time == 1564152487000)
-            .is_some());
+            let mut res = words.to_vec();
+            filter_date(&mut res, None, Some("2019-8-01"));
+            assert_eq!(res.len(), 1);
+            // 还剩下最小时间
+            assert!(res
+                .iter()
+                .find(|w| w.modified_time == 1564152487000)
+                .is_some());
 
-        let mut res = words.to_vec();
-        // 刚好还剩下最小时间
-        filter_date(&mut res, Some("2019-7-26"), Some("2019-8-01"));
-        assert_eq!(res.len(), 1);
-        assert!(res
-            .iter()
-            .find(|w| w.modified_time == 1564152487000)
-            .is_some());
+            let mut res = words.to_vec();
+            // 刚好还剩下最小时间
+            filter_date(&mut res, Some("2019-7-26"), Some("2019-8-01"));
+            assert_eq!(res.len(), 1);
+            assert!(res
+                .iter()
+                .find(|w| w.modified_time == 1564152487000)
+                .is_some());
 
-        let mut res = words.to_vec();
-        // 全过滤
-        filter_date(&mut res, Some("2019-3-11"), Some("2019-4-01"));
-        assert!(res.is_empty());
-    }
-
-    #[test]
-    fn filter_date_order() {
-        let mut words = get_words();
-        let mut res = words.to_vec();
-        // 过虑最小时间
-        filter_date(&mut res, Some("2019-8-26"), Some("2019-10-01"));
-        assert_eq!(res.len(), 2);
-        // 升序
-        words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
-        assert_eq!(words[0..2], res[..]);
-    }
-
-    #[test]
-    fn filter_offset_test() {
-        let mut words = get_words();
-        let len = words.len();
-        let offset = 2;
-        filter_offset(&mut words, offset);
-        assert_eq!(words.len(), offset as usize);
-        for i in 0..offset as usize {
-            assert_eq!(get_words()[i], words[i]);
+            let mut res = words.to_vec();
+            // 全过滤
+            filter_date(&mut res, Some("2019-3-11"), Some("2019-4-01"));
+            assert!(res.is_empty());
         }
 
-        let mut words = get_words();
-        let offset = -2;
-        filter_offset(&mut words, offset);
-        assert_eq!(words.len(), -offset as usize);
-        for i in 0..-offset as usize {
-            // 偏移后的下标(len as isize + offset) as usize + i
-            assert_eq!(get_words()[(len as isize + offset) as usize + i], words[i]);
+        #[test]
+        fn filter_date_order() {
+            let mut words = get_words();
+            let mut res = words.to_vec();
+            // 过虑最小时间
+            filter_date(&mut res, Some("2019-8-26"), Some("2019-10-01"));
+            assert_eq!(res.len(), 2);
+            // 升序
+            words.sort_unstable_by(|a, b| b.modified_time.cmp(&a.modified_time));
+            assert_eq!(words[0..2], res[..]);
         }
-        // assert_eq!(get_words()[(len - offset) as usize], words[len - offset]);
-    }
-*/
+
+        #[test]
+        fn filter_offset_test() {
+            let mut words = get_words();
+            let len = words.len();
+            let offset = 2;
+            filter_offset(&mut words, offset);
+            assert_eq!(words.len(), offset as usize);
+            for i in 0..offset as usize {
+                assert_eq!(get_words()[i], words[i]);
+            }
+
+            let mut words = get_words();
+            let offset = -2;
+            filter_offset(&mut words, offset);
+            assert_eq!(words.len(), -offset as usize);
+            for i in 0..-offset as usize {
+                // 偏移后的下标(len as isize + offset) as usize + i
+                assert_eq!(get_words()[(len as isize + offset) as usize + i], words[i]);
+            }
+            // assert_eq!(get_words()[(len - offset) as usize], words[len - offset]);
+        }
+    */
     fn get_words() -> Vec<WordItem> {
         // date1: Fri Jul 26 22:48:07 CST 2019
         // date2: Thu Sep 05 17:03:58 CST 2019

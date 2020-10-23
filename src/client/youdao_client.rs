@@ -1,11 +1,10 @@
 use crate::config::*;
+use crate::client::*;
 use cookie_store::CookieStore;
 use reqwest::{self, Client};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs,
-    io::{self},
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,42 +35,23 @@ pub struct WordItem {
     pub modified_time: usize,
 }
 
-/// 通过`: `分离多行的k-v返回一个map。map只会返回成功分离的k-v。
-///
-/// # panic
-///
-/// 如果存在一行不能通过`: `分离为k-v形式，则panic
-#[allow(dead_code)]
-pub fn parse_headers(params: &str) -> HashMap<String, String> {
-    let mut headers = HashMap::new();
-    params
-        .split('\n')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        // lines
-        .collect::<Vec<&str>>()
-        .iter()
-        // line
-        .map(|s| {
-            let line = s.split(": ").collect::<Vec<&str>>();
-            if line.len() != 2 {
-                panic!("invalid header: {}", s);
-            }
-            // k, v
-            (line[0], line[1])
-        })
-        .for_each(|(k, v)| {
-            headers.insert(k.to_string(), v.to_string());
-        });
-    headers
-}
-
 pub struct YoudaoClient<'a> {
     client: Client,
     config: &'a AppConfig,
     cookie_store: CookieStore,
 }
-use crate::http_client::*;
+
+impl<'a> std::ops::Drop for YoudaoClient<'a> {
+    /// 在退出时保存cookie store
+    fn drop(&mut self) {
+        if let Some(path) = self.config.get_cookie_path() {
+            if let Err(e) = save_cookie_store(path, &self.cookie_store) {
+                error!("save cookie store failed: {}", e);
+            }
+        }
+    }
+}
+
 impl<'a> YoudaoClient<'a> {
     /// 创建一个client
     ///
@@ -121,7 +101,7 @@ impl<'a> YoudaoClient<'a> {
             Some(&form),
         )
         .await?;
-        debug!("login response: {:?}", resp);
+        update_set_cookies(&mut self.cookie_store, &resp);
         // 多次登录后可能引起无法登录的问题
         if resp
             .headers()
@@ -131,11 +111,11 @@ impl<'a> YoudaoClient<'a> {
         {
             let error = format!("not found set-cookie in login resp: {:?}", resp);
             let body = resp.text().await.map_err(|e| format!("{:?}", e))?;
-            debug!("{}, body: {}", error, body);
+            error!("{}, body: {}", error, body);
             Err("Frequent login may have been added to youdao blacklist, not found any set-cookie in login resp".to_string())
         } else if !self.has_logged() {
             let error = format!("Unable to find login related cookie. resp: {:?}", resp);
-            debug!(
+            error!(
                 "{}, cookie store: {:?}, body: {:?}",
                 error,
                 self.cookie_store,
@@ -147,6 +127,27 @@ impl<'a> YoudaoClient<'a> {
         }
     }
 
+    pub async fn get_words_total(&self) -> Result<usize, String> {
+        if !self.has_logged() {
+            return Err("not logged in".to_string());
+        }
+        let req_name = "get-words";
+        let (limit, offset) = (1, 0);
+        let resp = send_request_nobody(
+            &self.config,
+            &self.client,
+            &self.cookie_store,
+            req_name,
+            |url| format!("{}?limit={}&offset={}", url, limit, offset),
+        )
+        .await?;
+        let result = resp
+            .json::<ResponseResult<Page<WordItem>>>()
+            .await
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(result.data.total)
+    }
+
     /// 缓存从youdao获取完整的单词本并清空之前存在的单词
     ///
     /// # panic
@@ -156,44 +157,52 @@ impl<'a> YoudaoClient<'a> {
         if !self.has_logged() {
             return Err("not logged in".to_string());
         }
+        debug!("getting words total");
+        let total = self.get_words_total().await?;
+        debug!("got words total: {}", total);
         let mut words = vec![];
         let req_name = "get-words";
-        debug!("sending request: {}", req_name);
-        let (limit, mut offset) = (1000, 0);
-        loop {
+        let limit = 1000;
+        let numbers = (total as f64 / limit as f64).ceil() as usize;
+        for number in 0..numbers {
+            let offset = limit * number;
             // let querys = ;
+            debug!("Getting words with limit: {}, offset: {}", limit, offset);
             let resp = send_request_nobody(
                 &self.config,
                 &self.client,
                 &self.cookie_store,
                 req_name,
-                |url| {
-                    url.to_string()
-                        + "?limit="
-                        + &limit.to_string()
-                        + "&offset="
-                        + &offset.to_string()
-                },
+                |url| format!("{}?limit={}&offset={}", url, limit, offset),
             )
             .await?;
-            let result = resp.json::<ResponseResult<Page<WordItem>>>().await.map_err(|e| format!("{:?}", e))?;
+            let result = resp
+                .json::<ResponseResult<Page<WordItem>>>()
+                .await
+                .map_err(|e| format!("{:?}", e))?;
             let items = result.data.item_list;
-            let len = items.len();
+            debug!(
+                "got youdao page words. code: {}, msg: {}, item size: {}",
+                result.code,
+                result.msg,
+                items.len()
+            );
             items.into_iter().for_each(|item| words.push(item));
-            if len < limit {
-                return Ok(words)
-            }
-            offset += 1;
+        }
+        debug!("got all words size: {}", words.len());
+        if words.len() == total {
+            Ok(words)
+        } else {
+            Err(format!("The number of words obtained is not the same as the total number! len: {}, total: {}", words.len(), total))
         }
     }
 
     pub fn has_logged(&self) -> bool {
-        let domain = ".youdao.com";
+        let domain = "youdao.com";
         self.cookie_store
             .get(domain, "/", "OUTFOX_SEARCH_USER_ID")
             .is_some()
             && self.cookie_store.get(domain, "/", "DICT_PERS").is_some()
-            && self.cookie_store.get(domain, "/", "DICT_SESS").is_some()
     }
 
     /// 获取youdao set-cookie: outfox_search_user_id，保证后续登录有效
@@ -219,7 +228,7 @@ mod tests {
     const CONFIG_PATH: &'static str = "config.yml";
 
     #[tokio::test]
-    async fn login_test() -> Result<(), String>{
+    async fn login_test() -> Result<(), String> {
         init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).map_err(|e| format!("{:?}", e))?;
         let mut client = YoudaoClient::new(&config.get_youdao())?;
@@ -229,10 +238,23 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn get_words_test() -> Result<(), String> {
+        init_log();
+        let config = Config::from_yaml_file(CONFIG_PATH).map_err(|e| format!("{:?}", e))?;
+        let mut client = YoudaoClient::new(&config.get_youdao())?;
+        if !client.has_logged() {
+            client.login().await?;
+        }
+        let words = client.get_words().await?;
+        assert!(words.len() > 0);
+        Ok(())
+    }
+
     fn init_log() {
         pretty_env_logger::formatted_builder()
-        // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
-        .filter_level(log::LevelFilter::Debug)
-        .init();
+            // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
+            .filter_module("youdao_dict_export::youdao_client", log::LevelFilter::Trace)
+            .init();
     }
 }

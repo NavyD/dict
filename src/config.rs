@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
+use tokio::{fs as afs};
 
 /// 一个对应.yml文件的配置struct
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    maimemo: AppConfig,
-    youdao: AppConfig,
+    maimemo: Option<AppConfig>,
+    youdao: Option<AppConfig>,
 }
 
 impl Config {
@@ -15,19 +16,27 @@ impl Config {
     /// # Errors
     /// 
     /// 如果path不存在或其它问题，yaml解析失败返回error
-    pub fn from_yaml_file(path: &str) -> io::Result<Config> {
-        std::fs::read_to_string(path).and_then(|contents| {
-            serde_yaml::from_str::<Config>(&contents).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", e)))
-        })
+    pub fn from_yaml_file(path: &str) -> Result<Config, String> {
+        let contents = std::fs::read_to_string(path).map_err(|e| format!("{:?}", e))?;
+        serde_yaml::from_str::<Config>(&contents).map_err(|e| format!("{:?}", e))
     }
 
     pub fn get_maimemo(&self) -> &AppConfig {
-        &self.maimemo
+        self.maimemo.as_ref().unwrap()
     }
 
     pub fn get_youdao(&self) -> &AppConfig {
-        &self.youdao
+        &self.youdao.as_ref().unwrap()
     }
+
+    pub fn maimemo(&mut self) -> AppConfig {
+        self.maimemo.take().unwrap()
+    }
+
+    pub fn youdao(&mut self) -> AppConfig {
+        self.youdao.take().unwrap()
+    }
+
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,12 +98,35 @@ impl RequestConfig {
     }
 }
 
+pub fn save_json<T: ?Sized + serde::ser::Serialize>(
+    data: &T,
+    path: &str,
+) -> io::Result<()> {
+    let contents = serde_json::to_string(data)?;
+    std::fs::write(path, contents)?;
+    Ok(())
+}
+
+/// 从json文件中加载
+pub async fn load_from_json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
+    let path = afs::canonicalize(path)
+        .await
+        .map_err(|e| format!("{:?}", e))?;
+    debug!("Loading json from path: {}", path.to_str().unwrap());
+    let file = afs::File::open(path)
+        .await
+        .map_err(|e| format!("{:?}", e))?
+        .try_into_std()
+        .unwrap();
+    serde_json::from_reader(file).map_err(|e| format!("{:?}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn load_maimemo_from_file() -> io::Result<()> {
+    fn load_maimemo_from_file() -> Result<(), String> {
         let path = "config.yml";
         let config = Config::from_yaml_file(path)?;
         let maimemo = config.get_maimemo();
