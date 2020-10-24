@@ -2,15 +2,10 @@ use crate::client::*;
 use crate::config::*;
 use chrono::Local;
 use cookie_store::CookieStore;
-use reqwest::{header::*, Client, Method, RequestBuilder};
+use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fmt;
-use std::{
-    fs::{self, OpenOptions},
-    io::{self},
-};
 
 /// notepad包含必要的header info和内容detail
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,7 +49,12 @@ impl fmt::Display for Notepad {
             updated_time: self.updated_time.to_owned(),
         };
         let s = serde_json::to_string_pretty(&temp).unwrap();
-        write!(f, "contents len: {}\n{}", self.contents.as_ref().map_or(0, |c| c.len()), s)
+        write!(
+            f,
+            "contents len: {}\n{}",
+            self.contents.as_ref().map_or(0, |c| c.len()),
+            s
+        )
     }
 }
 
@@ -67,14 +67,14 @@ struct ResponseResult {
 }
 
 /// maimemo提供一些访问操作。
-pub struct MaimemoClient<'a> {
+pub struct MaimemoClient {
     client: Client,
-    config: &'a AppConfig,
+    config: AppConfig,
     cookie_store: CookieStore,
     user_token_name: String,
 }
 
-impl<'a> std::ops::Drop for MaimemoClient<'a> {
+impl std::ops::Drop for MaimemoClient {
     /// 在退出时保存cookie store
     fn drop(&mut self) {
         if let Some(path) = self.config.get_cookie_path() {
@@ -85,13 +85,14 @@ impl<'a> std::ops::Drop for MaimemoClient<'a> {
     }
 }
 
-impl<'a> MaimemoClient<'a> {
+impl MaimemoClient {
     /// 用config构造一个client。如果config.cookie_path存在则加载，否则使用in memory的cookie store。
-    pub fn new(config: &'a AppConfig) -> Result<Self, String> {
+    pub fn new(config: AppConfig) -> Result<Self, String> {
+        let cookie_store = build_cookie_store(config.get_cookie_path())?;
         Ok(Self {
             client: build_general_client()?,
             config,
-            cookie_store: build_cookie_store(config.get_cookie_path())?,
+            cookie_store: cookie_store,
             user_token_name: "userToken".to_string(),
         })
     }
@@ -136,6 +137,16 @@ impl<'a> MaimemoClient<'a> {
             debug!("login successful");
             Ok(())
         }
+    }
+
+    /// 提供完整的notepad list调用get_notepad_list与get_notepad_contents
+    pub async fn get_notepads(&mut self) -> Result<Vec<Notepad>, String> {
+        let mut notepads = self.get_notepad_list().await?;
+        for notepad in &mut notepads {
+            let contents = self.get_notepad_contents(notepad.get_notepad_id()).await?;
+            notepad.set_contents(Some(contents));
+        }
+        Ok(notepads)
     }
 
     /// 获取notepad list
@@ -271,6 +282,9 @@ impl<'a> MaimemoClient<'a> {
 
     /// 从response html body中取出单词文本
     fn parse_notepad_text(html: &str) -> Result<String, String> {
+        if html.is_empty() {
+            return Err("html is empty".to_string());
+        }
         let id = "#content";
         let id_selector = Selector::parse(id).map_err(|e| format!("{:?}", e))?;
         let document = Html::parse_document(html);
@@ -279,7 +293,7 @@ impl<'a> MaimemoClient<'a> {
             .next()
             .map(|e| e.inner_html())
             .ok_or_else(|| {
-                debug!("not found element {} in html: \n{}", id, html);
+                error!("not found element {} in html: \n{}", id, html);
                 format!("not found element {} in html", id)
             })
     }
@@ -293,7 +307,7 @@ mod tests {
     async fn try_login() -> Result<(), String> {
         init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
-        let mut client = MaimemoClient::new(config.get_maimemo())?;
+        let mut client = MaimemoClient::new(config.maimemo.unwrap())?;
         client.login().await.map_err(|e| format!("{:?}", e))?;
         Ok(())
     }
@@ -302,7 +316,7 @@ mod tests {
     async fn get_notepad_list() -> Result<(), String> {
         init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
-        let mut client = MaimemoClient::new(config.get_maimemo())?;
+        let mut client = MaimemoClient::new(config.maimemo.unwrap())?;
         if !client.has_logged() {
             client.login().await?;
         }
@@ -315,82 +329,41 @@ mod tests {
     async fn get_notepad_contents() -> Result<(), String> {
         init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
-        let mut client = MaimemoClient::new(config.get_maimemo())?;
+        let mut client = MaimemoClient::new(config.maimemo.unwrap())?;
         if !client.has_logged() {
             client.login().await?;
         }
         let notepads = client.get_notepad_list().await?;
-        for notepad in notepads {
-            let contents = client.get_notepad_contents(&notepad.notepad_id).await?;
+        // for notepad in notepads {
+            let contents = client.get_notepad_contents(&notepads[0].notepad_id).await?;
             assert!(contents.len() > 0);
             assert!(contents.contains("\n"));
-        }
+        // }
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn init_log() {
         pretty_env_logger::formatted_builder()
             // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
-            .filter_module("youdao_dict_export::client", log::LevelFilter::Trace)
+            .filter_module("dict", log::LevelFilter::Trace)
             .init();
     }
 
-    // #[tokio::test]
-    // async fn refresh_captcha() -> Result<(), String> {
-    //     let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
-    //     let mut client = MaimemoClient::new(config.get_maimemo());
-    //     if !client.has_logged() {
-    //         client.login().await?;
-    //     }
-    //     let old_file = std::fs::read(config.get_maimemo().get_captcha_path());
-    //     let path = client.refresh_captcha().await?;
-    //     // assert!(path.is_file());
-    //     // let new_file = std::fs::read(path).map_err(|e| format!("{:?}", e))?;
-    //     // if let Ok(old_file) = old_file {
-    //     //     assert_ne!(old_file, new_file);
-    //     // }
-    //     Ok(())
-    // }
-
-    /*
-        // passed
-        #[tokio::test]
-        async fn save_notepad() -> Result<(), String> {
-            fn init_log(verbose: bool) {
-                pretty_env_logger::formatted_builder()
-                    // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
-                    .filter_level(if verbose {
-                        log::LevelFilter::Debug
-                    } else {
-                        log::LevelFilter::Warn
-                    })
-                    .init();
-            }
-            init_log(true);
-
-            let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
-            let mut client = MaimemoClient::new(config.get_maimemo());
-            // if !client.has_logged() {
-            //     client.login().await?;
-            // }
-            let contents = r#"
-    #2020-10-18
-    new
-    words
-    test
-    rust
-    "#;
-            let notepad = Notepad {
-                title: "test".to_string(),
-                brief: "words".to_string(),
-                is_private: 1,
-                notepad_id: "695835".to_string(),
-                contents: Some(contents.to_string()),
-                created_time: None,
-                updated_time: None,
-            };
-            client.save_notepad(notepad, "cdw24").await?;
-            Ok(())
+    #[tokio::test]
+    async fn refresh_captcha() -> Result<(), String> {
+        let config = Config::from_yaml_file(CONFIG_PATH).unwrap();
+        let mut client = MaimemoClient::new(config.maimemo.unwrap())?;
+        if !client.has_logged() {
+            client.login().await?;
         }
-        */
+        let data = client.refresh_captcha().await?;
+        assert!(data.len() > 0);
+        // assert!(path.is_file());
+        // let new_file = std::fs::read(path).map_err(|e| format!("{:?}", e))?;
+        // if let Ok(old_file) = old_file {
+        //     assert_ne!(old_file, new_file);
+        // }
+        Ok(())
+    }
 }

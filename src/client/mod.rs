@@ -2,29 +2,13 @@ pub mod maimemo_client;
 pub mod youdao_client;
 
 use crate::config::*;
-use chrono::Local;
 use cookie_store::CookieStore;
 use reqwest::{header::*, Client, Method, RequestBuilder};
-use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
-use std::fmt;
-use std::{
-    fs::{self, OpenOptions},
-    io::{self},
-    future::Future,
-};
+use std::{fs, io};
 
-pub trait LoggedClient {
-    fn has_logged(&self) -> bool;
-
-    fn login(&mut self) -> dyn Future<Output=()>;
-}
-
-pub trait WordClient {
-    fn get_words<T>(&self) -> dyn Future<Output=T>;
-}
-
+/// cookie store持久化
 pub fn save_cookie_store(path: &str, cookie_store: &CookieStore) -> Result<(), String> {
     info!("Saving cookies to path {}", path);
     let mut file = fs::OpenOptions::new()
@@ -62,6 +46,7 @@ pub fn build_cookie_store(cookie_path: Option<&str>) -> Result<CookieStore, Stri
     Ok(cookie_store)
 }
 
+/// 一个不使用cookie store，重定向的client
 pub fn build_general_client() -> Result<Client, String> {
     Client::builder()
         .cookie_store(false)
@@ -98,11 +83,13 @@ fn fill_body<T: Serialize + ?Sized>(
     }
 }
 
+/// 将cookie store中对应的url中的cookies填充requst builder
 pub fn fill_request_cookies(
     cookie_store: &cookie_store::CookieStore,
     req_builder: RequestBuilder,
     req_url: &str,
 ) -> RequestBuilder {
+    debug!("filling reqeust cookies");
     let url = &reqwest::Url::parse(req_url).unwrap();
     let delimiter = "; ";
     let mut cookies = "".to_string();
@@ -119,7 +106,10 @@ pub fn fill_request_cookies(
     match HeaderValue::from_str(&cookies) {
         Ok(v) => req_builder.header(reqwest::header::COOKIE, v),
         Err(e) => {
-            warn!("skiped unable to request cookie: {}. error: {:?}", cookies, e);
+            warn!(
+                "skiped unable to request cookie: {}. error: {:?}",
+                cookies, e
+            );
             req_builder
         }
     }
@@ -148,11 +138,11 @@ pub fn update_set_cookies(cookie_store: &mut cookie_store::CookieStore, resp: &r
 
 /// 将headers内容填充至req_builder中
 ///
-/// 如果header中存在不合法的key,val返回一个str error
+/// 如果header中存在不合法的key,val被跳过
 pub fn fill_headers(
     req_builder: RequestBuilder,
     headers: &HashMap<String, String>,
-) -> Result<RequestBuilder, String> {
+) -> RequestBuilder {
     let mut req_headers = HeaderMap::new();
     for (key, val) in headers {
         trace!("filling request header: {}={}", key, val);
@@ -172,7 +162,7 @@ pub fn fill_headers(
             debug!("replace old header: {}={}", key, old.to_str().unwrap());
         }
     }
-    Ok(req_builder.headers(req_headers))
+    req_builder.headers(req_headers)
 }
 
 /// 通过req_name从Config中获取一个request config
@@ -202,7 +192,8 @@ pub async fn send_request_nobody<U: FnOnce(&str) -> String>(
     .await
 }
 
-/// 获取req_name对应的config发送一个request，并返回200成功的resp。
+/// 获取req_name对应的config发送一个request
+/// 
 /// `url_handler`可以处理url。
 ///
 /// 从config中读取url,method,headers与self.cookie_store中的cookie构造request
@@ -224,7 +215,7 @@ pub async fn send_request<T: Serialize + ?Sized, U: FnOnce(&str) -> String>(
 ) -> Result<reqwest::Response, String> {
     let req_config = get_request_config(config, req_name)
         .ok_or(format!("not found req config with req_name: {}", req_name))?;
-    debug!("Found configuration for request: {}", req_name);
+    debug!("sending request: {}", req_name);
 
     let url = req_config.get_url();
     debug!("found the configured url: {}", url);
@@ -241,9 +232,8 @@ pub async fn send_request<T: Serialize + ?Sized, U: FnOnce(&str) -> String>(
         .get_headers()
         .ok_or(format!("not found any headers in req url: {}", url))?;
     debug!("Fill in the request from the configured headers");
-    req_builder = fill_headers(req_builder, headers)?;
+    req_builder = fill_headers(req_builder, headers);
 
-    debug!("filling reqeust cookies");
     req_builder = fill_request_cookies(cookie_store, req_builder, &url);
 
     if let Some(body) = body {

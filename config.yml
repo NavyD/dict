@@ -1,8 +1,8 @@
 youdao: 
     username: dhjnavyd@163.com
     password: 4ff32ab339c507639b234bf2a2919182
-    cookie_path: youdao-cookies.json
-    dictionary_path: youdao-dictionary.json
+    cookie_path: target/youdao-cookies.json
+    dictionary_path: target/youdao-dictionary.json
     requests:
         fetch-cookie-outfox-search-user-id: 
             url: http://account.youdao.com/login?service=dict&back_url=http%3A%2F%2Fdict.youdao.com%2Fwordbook%2Fwordlist%3Fkeyfrom%3Ddict2.index%23%2F
@@ -50,8 +50,8 @@ youdao:
 maimemo:
     username: dhjnavyd@gmail.com
     password: mm.123456
-    cookie_path: maimemo-cookies.json
-    dictionary_path: maimemo-dictionary.json
+    cookie_path: target/maimemo-cookies.json
+    dictionary_path: target/maimemo-dictionary.json
     requests:
         login: 
             url: https://www.maimemo.com/auth/login

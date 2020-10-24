@@ -1,5 +1,5 @@
 [package]
-name = "youdao-dict-export"
+name = "dict"
 version = "0.2.0"
 authors = ["navyd <dhjnavyd@gmail.com>"]
 edition = "2018"

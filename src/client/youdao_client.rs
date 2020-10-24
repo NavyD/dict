@@ -3,9 +3,6 @@ use crate::client::*;
 use cookie_store::CookieStore;
 use reqwest::{self, Client};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ResponseResult<T> {
@@ -35,13 +32,13 @@ pub struct WordItem {
     pub modified_time: usize,
 }
 
-pub struct YoudaoClient<'a> {
+pub struct YoudaoClient {
     client: Client,
-    config: &'a AppConfig,
+    config: AppConfig,
     cookie_store: CookieStore,
 }
 
-impl<'a> std::ops::Drop for YoudaoClient<'a> {
+impl std::ops::Drop for YoudaoClient {
     /// 在退出时保存cookie store
     fn drop(&mut self) {
         if let Some(path) = self.config.get_cookie_path() {
@@ -52,17 +49,18 @@ impl<'a> std::ops::Drop for YoudaoClient<'a> {
     }
 }
 
-impl<'a> YoudaoClient<'a> {
+impl YoudaoClient {
     /// 创建一个client
     ///
     /// # panic
     ///
     /// 如果Client无法创建
-    pub fn new(config: &'a AppConfig) -> Result<Self, String> {
+    pub fn new(config: AppConfig) -> Result<Self, String> {
+        let cookie_store = build_cookie_store(config.get_cookie_path())?;
         Ok(Self {
             client: build_general_client()?,
             config,
-            cookie_store: build_cookie_store(config.get_cookie_path())?,
+            cookie_store,
         })
     }
 
@@ -91,7 +89,6 @@ impl<'a> YoudaoClient<'a> {
             // 同意登录
             ("agreePrRule", "1"),
         ];
-        debug!("sending request: {}", req_name);
         let resp = send_request(
             &self.config,
             &self.client,
@@ -127,6 +124,7 @@ impl<'a> YoudaoClient<'a> {
         }
     }
 
+    /// 获取单词数量
     pub async fn get_words_total(&self) -> Result<usize, String> {
         if !self.has_logged() {
             return Err("not logged in".to_string());
@@ -148,7 +146,7 @@ impl<'a> YoudaoClient<'a> {
         Ok(result.data.total)
     }
 
-    /// 缓存从youdao获取完整的单词本并清空之前存在的单词
+    /// 从youdao获取完整的单词本
     ///
     /// # panic
     ///
@@ -197,6 +195,7 @@ impl<'a> YoudaoClient<'a> {
         }
     }
 
+    /// 从cookie_store中查询是否存在登录的cookie
     pub fn has_logged(&self) -> bool {
         let domain = "youdao.com";
         self.cookie_store
@@ -229,9 +228,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_test() -> Result<(), String> {
-        init_log();
+        // init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).map_err(|e| format!("{:?}", e))?;
-        let mut client = YoudaoClient::new(&config.get_youdao())?;
+        let mut client = YoudaoClient::new(config.youdao.unwrap())?;
         if !client.has_logged() {
             client.login().await?;
         }
@@ -240,9 +239,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_words_test() -> Result<(), String> {
-        init_log();
+        // init_log();
         let config = Config::from_yaml_file(CONFIG_PATH).map_err(|e| format!("{:?}", e))?;
-        let mut client = YoudaoClient::new(&config.get_youdao())?;
+        let mut client = YoudaoClient::new(config.youdao.unwrap())?;
         if !client.has_logged() {
             client.login().await?;
         }
@@ -251,6 +250,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn init_log() {
         pretty_env_logger::formatted_builder()
             // .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))

@@ -1,24 +1,26 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
-use tokio::{fs as afs};
+use tokio::fs as afs;
 
 /// 一个对应.yml文件的配置struct
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    maimemo: Option<AppConfig>,
-    youdao: Option<AppConfig>,
+    pub maimemo: Option<AppConfig>,
+    pub youdao: Option<AppConfig>,
 }
 
 impl Config {
     /// 从path yaml中加载配置。
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// 如果path不存在或其它问题，yaml解析失败返回error
     pub fn from_yaml_file(path: &str) -> Result<Config, String> {
-        let contents = std::fs::read_to_string(path).map_err(|e| format!("{:?}", e))?;
-        serde_yaml::from_str::<Config>(&contents).map_err(|e| format!("{:?}", e))
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| format!("read to string error: {}, path: {}", e, path))?;
+        serde_yaml::from_str::<Config>(&contents)
+            .map_err(|e| format!("serde parse yaml error: {}. contents: {}", e, contents))
     }
 
     pub fn get_maimemo(&self) -> &AppConfig {
@@ -36,7 +38,6 @@ impl Config {
     pub fn youdao(&mut self) -> AppConfig {
         self.youdao.take().unwrap()
     }
-
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,10 +99,8 @@ impl RequestConfig {
     }
 }
 
-pub fn save_json<T: ?Sized + serde::ser::Serialize>(
-    data: &T,
-    path: &str,
-) -> io::Result<()> {
+/// 保存到json文件
+pub fn save_json<T: ?Sized + serde::ser::Serialize>(data: &T, path: &str) -> io::Result<()> {
     let contents = serde_json::to_string(data)?;
     std::fs::write(path, contents)?;
     Ok(())
@@ -109,16 +108,13 @@ pub fn save_json<T: ?Sized + serde::ser::Serialize>(
 
 /// 从json文件中加载
 pub async fn load_from_json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
-    let path = afs::canonicalize(path)
-        .await
-        .map_err(|e| format!("{:?}", e))?;
-    debug!("Loading json from path: {}", path.to_str().unwrap());
+    trace!("Loading json from path: {}", path);
     let file = afs::File::open(path)
         .await
-        .map_err(|e| format!("{:?}", e))?
+        .map_err(|e| format!("open file error: {}, path: {}", e, path))?
         .try_into_std()
         .unwrap();
-    serde_json::from_reader(file).map_err(|e| format!("{:?}", e))
+    serde_json::from_reader(file).map_err(|e| format!("parse json error: {}, path: {}", e, path))
 }
 
 #[cfg(test)]
@@ -134,7 +130,7 @@ mod tests {
         assert!(maimemo.get_password().len() > 0);
         assert_eq!("maimemo-dictionary.json", maimemo.get_dictionary_path());
         assert_eq!(Some("maimemo-cookies.json"), maimemo.get_cookie_path());
-        if let Some(requests ) = maimemo.get_requests() {
+        if let Some(requests) = maimemo.get_requests() {
             assert_eq!(requests.len(), 5);
         }
         Ok(())
