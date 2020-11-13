@@ -257,13 +257,12 @@ pub async fn send_request<T: Serialize + ?Sized, U: FnOnce(&str) -> String>(
 
     trace!("sending request: {:?}", req_builder);
     let resp = req_builder.send().await.map_err(|e| format!("{:?}", e))?;
-    trace!("response received: {:?}", resp);
     let status = resp.status();
     if status.as_u16() == 200 || status.as_u16() == 302 {
         Ok(resp)
     } else {
         let msg = format!("Response code error: {}", status);
-        debug!("{}", msg);
+        debug!("Response code error: {}. resp: {:?}", status, resp);
         Err(msg)
     }
 }

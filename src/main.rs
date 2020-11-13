@@ -1,15 +1,14 @@
 // https://users.rust-lang.org/t/cargo-build-shows-unresolved-import/45445/7
 use std::path::Path;
 
+use chrono::{DateTime, TimeZone, Utc};
 use dict::{
     client::{
         maimemo_client::{MaimemoClient, Notepad},
         youdao_client::{WordItem, YoudaoClient},
     },
-    config::*,
+    config::{load_from_json_file, save_json, AppConfig, Config},
 };
-
-use chrono::{DateTime, TimeZone, Utc};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
@@ -18,6 +17,11 @@ use std::fs;
 use std::io::{self, prelude::*, Write};
 use std::str;
 
+/// 典型用法
+/// 
+/// ```bash
+/// dict youdao --offset 10 | dict maimemo --upload --id 213423
+/// ```
 #[derive(StructOpt, Debug)]
 struct AppOpt {
     /// 是否输出debug日志
@@ -70,7 +74,6 @@ enum SubCommand {
         #[structopt(long = "id")]
         notepad_id: Option<String>,
 
-        // dict youdao --offset 10 | dict maimemo --upload --id 213423
         /// 从stdin中上传内容到maimemo
         #[structopt(short, long)]
         upload: bool,
@@ -133,13 +136,11 @@ impl<'a> MaimemoApp<'a> {
                 })
         } else {
             // load from web
-            if !client.has_logged() {
-                debug!("Signing in");
-                client
-                    .login()
-                    .await
-                    .unwrap_or_else(|e| panic!("maimemo client login failed: {}", e));
-            }
+            debug!("Signing in");
+            client
+                .login()
+                .await
+                .unwrap_or_else(|e| panic!("maimemo client login failed: {}", e));
             client
                 .get_notepads()
                 .await
@@ -149,7 +150,7 @@ impl<'a> MaimemoApp<'a> {
             client,
             dictionary_path,
             notepads,
-            is_updated: is_local,
+            is_updated: !is_local,
             input: io::BufReader::new(Box::new(input)),
             output: io::BufWriter::new(Box::new(output)),
         }
@@ -164,6 +165,14 @@ impl<'a> MaimemoApp<'a> {
             .open(path)
             .unwrap_or_else(|e| panic!("open file error: {}, path: {}", e, path));
         MaimemoApp::new(config, is_local, file, io::stdout()).await
+    }
+
+    pub async fn with_stdio_local(config: AppConfig) -> MaimemoApp<'a> {
+        Self::with_stdio(config, true).await
+    }
+
+    pub async fn with_stdio_web(config: AppConfig) -> MaimemoApp<'a> {
+        Self::with_stdio(config, false).await
     }
 
     /// 从stdin将指定notepad_id的内容更新到maimemo web上。当保存成功后更新
@@ -303,9 +312,7 @@ impl<'a> MaimemoApp<'a> {
             contents.clear();
         }
         if timestamp {
-            let timestr = chrono::Local::now()
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string();
+            let timestr = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             let s = format!("\n# {} Auto insert\n", timestr);
             debug!("Inserting timestamp string: {}", s);
             contents.push_str(&s);
@@ -570,12 +577,16 @@ mod maimemo_tests {
     use super::*;
     const CONFIG_PATH: &'static str = "config.yml";
 
+    fn init_log() {
+        pretty_env_logger::formatted_builder()
+        .filter_module("dict", log::LevelFilter::Debug)
+        .init();
+    }
+
     async fn mocked_maimemo_data<'a>(
         is_local: bool,
     ) -> Result<(MaimemoApp<'a>, Vec<Notepad>), String> {
-        pretty_env_logger::formatted_builder()
-            .filter_module("dict", log::LevelFilter::Debug)
-            .init();
+        init_log();
         let config = Config::from_yaml_file(CONFIG_PATH)?;
         let notepads =
             load_from_json_file::<Vec<Notepad>>(config.get_maimemo().get_dictionary_path()).await?;
@@ -584,6 +595,24 @@ mod maimemo_tests {
             MaimemoApp::new(config.maimemo.unwrap(), is_local, input, output).await,
             notepads,
         ))
+    }
+
+    #[tokio::test]
+    async fn nofile_web_loading() -> Result<(), String> {
+        init_log();
+        let config = Config::from_yaml_file(CONFIG_PATH)?;
+        let remove_file_if_exists = |path: &str| -> Result<(), String> {
+            let path = std::path::Path::new(path);
+            if path.exists() {
+                debug!("removing file: {}", path.canonicalize().unwrap().to_str().unwrap());
+                fs::remove_file(path).map_err(|e| format!("{:?}", e))?;
+            }
+            Ok(())
+        };
+        remove_file_if_exists(config.get_maimemo().get_cookie_path().unwrap())?;
+        remove_file_if_exists(config.get_maimemo().get_dictionary_path())?;
+        MaimemoApp::with_stdio_web(config.maimemo.unwrap()).await;
+        Ok(())
     }
 
     #[tokio::test]
@@ -615,13 +644,19 @@ mod maimemo_tests {
         Ok(())
     }
 
-    // #[tokio::test]
-    // async fn maimemo_save() -> Result<(), String> {
-    //     init_log();
-    //     let config = Config::from_yaml_file(CONFIG_PATH)?;
-    //     let mut app = MaimemoApp::from_file(config.maimemo.unwrap()).await;
-    //     app.upload_notepad(io::Cursor::new("test"), "695835", false, false)
-    //         .await;
-    //     Ok(())
-    // }
+    #[tokio::test]
+    async fn maimemo_save() -> Result<(), String> {
+        pretty_env_logger::formatted_builder()
+            .filter_module("dict", log::LevelFilter::Trace)
+            .init();
+        let config = Config::from_yaml_file(CONFIG_PATH)?;
+        let (input, output) = (io::stdin(), io::Cursor::new(Vec::new()));
+        let mut app = MaimemoApp::new(config.maimemo.unwrap(), true, input, output).await;
+
+        let notepad_id = "695835";
+        let contents_read = io::Cursor::new("test words");
+        app.upload_notepad(contents_read, notepad_id, false, false)
+            .await;
+        Ok(())
+    }
 }

@@ -198,7 +198,6 @@ impl MaimemoClient {
             url_handler,
         )
         .await?;
-        debug!("parsing notepad html");
         Self::parse_notepad_text(&resp.text().await.map_err(|e| format!("{:?}", e))?)
     }
 
@@ -272,6 +271,7 @@ impl MaimemoClient {
         .json::<RespResult>()
         .await
         .map_err(|e| format!("{:?}", e))?;
+        
         if let Some(e) = &result.error {
             error!("save notepad failed: {:?}", result);
             return Err(format!("save notepad failed: {}", e));
@@ -285,6 +285,7 @@ impl MaimemoClient {
         if html.is_empty() {
             return Err("html is empty".to_string());
         }
+        debug!("parsing notepad html");
         let id = "#content";
         let id_selector = Selector::parse(id).map_err(|e| format!("{:?}", e))?;
         let document = Html::parse_document(html);

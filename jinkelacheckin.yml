@@ -1,0 +1,16 @@
+url: https://jinkela.pw/user/checkin
+method: POST
+accept: application/json, text/javascript, */*; q=0.01
+accept-encoding: gzip, deflate, br
+accept-language: zh-CN,zh;q=0.9,en;q=0.8
+cache-control: no-cache
+content-length: 0
+cookie: _ga=GA1.2.1387129609.1600216728; SL_GWPT_Show_Hide_tmp=1; SL_wptGlobTipTmp=1; __cfduid=dec4514048521df6f9912b409cfbeed101603154987; uid=18019; email=dhjnavyd%40qq.com; key=95d5c280607f8ab1eb15081391b362eab9164b4ebdce9; ip=39abe9b7d341acdbc8148716d412b11c; expire_in=1603759814; _gid=GA1.2.1380003386.1603553527; crisp-client%2Fsession%2Faf36d62b-d103-4458-87ee-953021080b73=session_570cf684-f5ab-4f24-b37a-2722b70b9667; _gat=1
+origin: https://jinkela.pw
+pragma: no-cache
+referer: https://jinkela.pw/user
+sec-fetch-dest: empty
+sec-fetch-mode: cors
+sec-fetch-site: same-origin
+user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36
+x-requested-with: XMLHttpRequest
