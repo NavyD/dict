@@ -39,22 +39,14 @@ impl Notepad {
 
 impl fmt::Display for Notepad {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let temp = Notepad {
-            is_private: self.is_private,
-            brief: self.brief.to_owned(),
-            contents: None,
-            created_time: self.created_time.to_owned(),
-            notepad_id: self.notepad_id.to_owned(),
-            title: self.title.to_owned(),
-            updated_time: self.updated_time.to_owned(),
-        };
-        let s = serde_json::to_string_pretty(&temp).unwrap();
-        write!(
-            f,
-            "contents len: {}\n{}",
-            self.contents.as_ref().map_or(0, |c| c.len()),
-            s
-        )
+        let mut temp = self.clone();
+        // 仅输出第一行 与 total length
+        let contents = temp.contents.as_mut().unwrap();
+        let total_len = contents.len();
+        contents.drain(contents.find("\n").unwrap_or(total_len)..);
+        contents.push_str("... total length: ");
+        contents.push_str(&total_len.to_string());
+        write!(f, "{}", serde_json::to_string_pretty(&temp).unwrap())
     }
 }
 
