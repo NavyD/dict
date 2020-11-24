@@ -35,7 +35,16 @@ pub fn build_cookie_store(cookie_path: Option<&str>) -> Result<CookieStore, Stri
             .read(true)
             .open(cookie_path)
             .map_err(|e| format!("path {} error: {:?}", cookie_path, e))?;
-        CookieStore::load_json(io::BufReader::new(file)).map_err(|e| format!("{:?}", e))?
+        // fix cookie store file loading error:
+        //  DEBUG dict::client > opening cookie store from path: /home/navyd/.dict/youdao-cookies.json
+        //  thread 'main' panicked at 'new youdaoclient error: Error("expected value", line: 1, column: 1)', src/main.rs:404:58
+        match CookieStore::load_json(io::BufReader::new(file)).map_err(|e| format!("{:?}", e)) {
+            Err(e) if e.contains("line: 1, column: 1") => {
+                warn!("Reinitializing cookie store. loading cookie file error: {}", e);
+                CookieStore::default()
+            },
+            o => o?
+        }
     } else {
         debug!("not found cookie store path. cookie store used in memory");
         CookieStore::default()
