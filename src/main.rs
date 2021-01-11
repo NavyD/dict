@@ -210,6 +210,10 @@ impl<'a> MaimemoApp<'a> {
                 .save_notepad(new_notepad.clone(), captcha.clone())
                 .await
             {
+                // fix decode error
+                if e.to_lowercase().contains("decode") {
+                    panic!("读取mm缓存文件错误，请用-r修复");
+                }
                 debug!(
                     "upload failed. notepad: {}, captcha: {}",
                     new_notepad, captcha
